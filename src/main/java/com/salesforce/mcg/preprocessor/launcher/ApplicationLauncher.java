@@ -33,9 +33,8 @@ import org.springframework.stereotype.Component;
 import java.io.InputStream;
 import java.io.PipedInputStream;
 import java.io.PipedOutputStream;
-import java.time.Instant;
-import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.zip.ZipEntry;
@@ -62,8 +61,8 @@ import static com.salesforce.mcg.preprocessor.common.AppConstants.*;
  *
  * <h2>Command-line arguments</h2>
  * <ul>
- *   <li>{@code --file=<name>} — process only a specific file inside {@code inputDir}
- *       instead of auto-discovering all matching files.
+ *   <li>{@code --company=<telmex|telnor>} — required tenant selector used by SFTP/property context.</li>
+ *   <li>{@code --file=<name>} — required input file inside {@code inputDir}.</li>
  * </ul>
  *
  * <h2>Parallel processing on Heroku</h2>
@@ -106,8 +105,8 @@ public class ApplicationLauncher implements ApplicationRunner {
         var threadName = "preprocessor-shutdown-hook";
         Runtime.getRuntime().addShutdownHook(new Thread(gatewayCallback::notifyNext, threadName));
 
-        var file = args.getOptionValues("file").get(0);
-        var company = args.getOptionValues("company").get(0);
+        var file = requireSingleOption(args, "file");
+        var company = requireSingleOption(args, "company");
 
         AtomicInteger processed = new AtomicInteger(0);
         AtomicInteger failed = new AtomicInteger(0);
@@ -123,6 +122,14 @@ public class ApplicationLauncher implements ApplicationRunner {
                 scheduleShutdown(failed.get() > 0 ? 1 : 0);
             }
         }
+    }
+
+    private String requireSingleOption(ApplicationArguments args, String name) {
+        List<String> values = args.getOptionValues(name);
+        if (values == null || values.isEmpty() || values.get(0) == null || values.get(0).isBlank()) {
+            throw new IllegalArgumentException("Missing required argument: --" + name);
+        }
+        return values.get(0).trim();
     }
 
     private void process(String fileName, String company,

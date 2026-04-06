@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.boot.DefaultApplicationArguments;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.io.ByteArrayInputStream;
@@ -141,5 +142,16 @@ class ApplicationLauncherTest {
         assertThatThrownBy(() -> ReflectionTestUtils.invokeMethod(
                 launcher, "openProcessStream", "input.zip", new ByteArrayInputStream(zipped.toByteArray())))
                 .hasRootCauseMessage("❌ No .txt entry found inside ZIP file: input.zip");
+    }
+
+    @Test
+    void run_whenCompanyOptionMissing_doesNotStartProcessing() throws Exception {
+        var args = new DefaultApplicationArguments("--file=HEROKU2345_S_DEMO.txt");
+
+        assertThatThrownBy(() -> launcher.run(args))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Missing required argument: --company");
+
+        verify(sftpClientService, never()).openDownloadStream("/inbox/HEROKU2345_S_DEMO.txt");
     }
 }
