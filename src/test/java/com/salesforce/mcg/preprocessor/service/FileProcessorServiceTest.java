@@ -51,8 +51,7 @@ class FileProcessorServiceTest {
                 1,
                 "local-test",
                 "telmex",
-                "01/01/2001 00:00:00.");
-        ;
+                "01/01/2001 00:00:00");
     }
 
     @Test
