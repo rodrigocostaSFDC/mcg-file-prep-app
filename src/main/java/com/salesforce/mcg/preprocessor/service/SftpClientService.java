@@ -166,6 +166,7 @@ public class SftpClientService {
         var channel = getSftpChannel();
         try {
             try {
+                log.info("ℹ️ srcPath: '{}' -> destPath: '{}'", srcPath, destPath);
                 channel.stat(props.outputDir());
             } catch (SftpException e) {
                 if (e.id == ChannelSftp.SSH_FX_NO_SUCH_FILE) {
