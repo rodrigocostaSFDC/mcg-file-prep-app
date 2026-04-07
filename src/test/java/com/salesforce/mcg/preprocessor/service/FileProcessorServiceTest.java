@@ -195,19 +195,22 @@ class FileProcessorServiceTest {
     }
 
     @Test
-    void process_shouldIgnoreBlankOrInvalidUrlValues() throws IOException, CsvValidationException {
+    void process_shouldShortenNonBlankUrlColumnValuesEvenWhenNotHttp() throws IOException, CsvValidationException {
         String input = "TELEFONO|URL|URL2\n5512345678|not-a-url| \n";
         ByteArrayInputStream in = new ByteArrayInputStream(input.getBytes(StandardCharsets.UTF_8));
         ByteArrayOutputStream out = new ByteArrayOutputStream();
 
         when(telcelCheckService.isTelcelBatch(anyList())).thenReturn(Map.of(5512345678L, false));
         when(shortCodeBalancer.assignShortCode(false)).thenReturn("89992");
+        when(shortUrlService.shortUrlBatch(anyList())).thenReturn(List.of(
+                new ShortUrlResponse(null, null, null, "not-a-url", "https://short/a", null)
+        ));
 
         long errors = fileProcessorService.process(in, out, "run-invalid-url");
 
         assertThat(errors).isZero();
-        assertThat(normalizeOutput(out)).contains("5512345678|not-a-url| |false|89992|");
-        verify(shortUrlService, never()).shortUrlBatch(anyList());
+        assertThat(normalizeOutput(out)).contains("5512345678|https://short/a| |false|89992|");
+        verify(shortUrlService, times(1)).shortUrlBatch(anyList());
     }
 
     @Test
@@ -288,29 +291,6 @@ class FileProcessorServiceTest {
         verify(telcelCheckService, times(2)).isTelcelBatch(anyList());
         verify(shortUrlService, times(2)).shortUrlBatch(anyList());
         assertThat(normalizeOutput(out)).contains("https://short/a").contains("https://short/b");
-    }
-
-    @Test
-    void process_shouldFallbackSubscriberKeyToPhoneWhenHeaderMissing() throws IOException, CsvValidationException {
-        String input = "TELEFONO|URL|TCODE|TNAME\n5512345678|https://a.com|api-01|template-x\n";
-        ByteArrayInputStream in = new ByteArrayInputStream(input.getBytes(StandardCharsets.UTF_8));
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-
-        when(telcelCheckService.isTelcelBatch(anyList())).thenReturn(Map.of(5512345678L, false));
-        when(shortCodeBalancer.assignShortCode(false)).thenReturn("89992");
-        when(shortUrlService.shortUrlBatch(anyList())).thenReturn(List.of(
-                new ShortUrlResponse(null, null, null, "https://a.com", "https://short/a", null)
-        ));
-
-        long errors = fileProcessorService.process(in, out, "run-subscriber-fallback");
-
-        assertThat(errors).isZero();
-        ArgumentCaptor<List<ShortUrlRequest>> captor = ArgumentCaptor.forClass(List.class);
-        verify(shortUrlService).shortUrlBatch(captor.capture());
-        ShortUrlRequest request = captor.getValue().get(0);
-        assertThat(request.subscriberKey()).isEqualTo("5512345678");
-        assertThat(request.requestId()).contains("local-test_run-subscriber-fallback_");
-        assertThat(normalizeOutput(out)).contains("https://short/a");
     }
 
     @Test

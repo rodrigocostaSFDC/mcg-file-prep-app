@@ -28,11 +28,12 @@ import java.time.Instant;
 public class ProcessedLine {
     private int rowIndex;
     private String[] originalColumns;
+    private LineColumns lineColumns;
     private String id;
     private String originalUrl;
     private String shortUrl;
     private String requestId;
-    private String subscriberKey;
+    private String mobileNumber;
     private String phoneNumber;
     private String email;
     private String company;

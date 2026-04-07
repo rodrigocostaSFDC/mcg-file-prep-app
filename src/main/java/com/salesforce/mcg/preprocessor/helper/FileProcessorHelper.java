@@ -1,7 +1,6 @@
 package com.salesforce.mcg.preprocessor.helper;
 
 import com.opencsv.*;
-import com.salesforce.mcg.preprocessor.data.ColumnMapping;
 import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
 
@@ -28,12 +27,7 @@ public class FileProcessorHelper {
     // Header Constants
     // -------------------------------------------------------------------------
 
-    public static final String PHONE_HEADER = "CELULAR";
-    public static final String PHONE_HEADER_FALLBACK = "TELEFONO";
-    public static final List<String> URL_HEADERS = List.of("URL", "URL2");
-    public static final List<String> API_KEY_HEADERS = List.of("TCODE");
-    public static final List<String> TEMPLATE_NAME_HEADERS = List.of("TNAME");
-    public static final List<String> SUBSCRIBER_KEY_HEADERS = List.of("SUBSCRIBER_KEY", "MOBILE_USER_ID");
+
 
     // -------------------------------------------------------------------------
     // General Helpers
@@ -89,13 +83,13 @@ public class FileProcessorHelper {
         return "%s_%s_%s_%s".formatted(uniqueEnvId, fileRequestId, rowIndex, colIdx);
     }
 
-    public static int resolvePhoneColumn(Map<String, Integer> index) {
-        if (index.containsKey(PHONE_HEADER)) return index.get(PHONE_HEADER);
-        if (index.containsKey(PHONE_HEADER_FALLBACK)) return index.get(PHONE_HEADER_FALLBACK);
-        var errorMessage = "❌Required column '%s' (or fallback '%s') not found in header. Available columns: %s"
-                .formatted(PHONE_HEADER, PHONE_HEADER_FALLBACK, index.keySet());
-        throw new IllegalArgumentException(errorMessage);
-    }
+//    public static int resolvePhoneColumn(Map<String, Integer> index) {
+//        if (index.containsKey(PHONE_HEADER)) return index.get(PHONE_HEADER);
+//        if (index.containsKey(PHONE_HEADER_FALLBACK)) return index.get(PHONE_HEADER_FALLBACK);
+//        var errorMessage = "❌Required column '%s' (or fallback '%s') not found in header. Available columns: %s"
+//                .formatted(PHONE_HEADER, PHONE_HEADER_FALLBACK, index.keySet());
+//        throw new IllegalArgumentException(errorMessage);
+//    }
 
     // -------------------------------------------------------------------------
     // File Reader and Writer methods
@@ -112,22 +106,6 @@ public class FileProcessorHelper {
         return new CSVWriterBuilder(
                 new OutputStreamWriter(outputStream, StandardCharsets.UTF_8))
                 .withSeparator(DELIMITER).build();
-    }
-
-    // -------------------------------------------------------------------------
-    // Column Mapping methods
-    // -------------------------------------------------------------------------
-
-    public static ColumnMapping getColumnMapping(Map<String, Integer> headerIndex){
-        int phoneColIdx = resolvePhoneColumn(headerIndex);
-        List<Integer> urlColIdxs = URL_HEADERS.stream()
-                .filter(headerIndex::containsKey)
-                .map(headerIndex::get)
-                .toList();
-        int apiKeyColIdx = resolveColumn(headerIndex, API_KEY_HEADERS);
-        int templateNameColIdx = resolveColumn(headerIndex, TEMPLATE_NAME_HEADERS);
-        int subscriberKeyColIdx = resolveColumn(headerIndex, SUBSCRIBER_KEY_HEADERS);
-        return new ColumnMapping(phoneColIdx, urlColIdxs, apiKeyColIdx, templateNameColIdx, subscriberKeyColIdx);
     }
 
     public static int resolveColumn(Map<String, Integer> index, List<String> headers) {

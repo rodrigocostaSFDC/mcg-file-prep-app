@@ -46,11 +46,7 @@ public class AppConstants {
     public static final String FILENAME_DATETIME_FORMAT_PATTERN = "yyyyMMdd_HHmm";
     public static final String FILENAME_ERRORS_SUFFIX = ".hasErrors";
 
-    public static final String PHONE_HEADER = "CELULAR";
-    public static final String PHONE_HEADER_FALLBACK = "TELEFONO";
     public static final List<String> URL_HEADERS = List.of("URL", "URL2");
-    public static final List<String> API_KEY_HEADERS = List.of("TCODE");
-    public static final List<String> TEMPLATE_NAME_HEADERS = List.of("TNAME");
     public static final List<String> SUBSCRIBER_KEY_HEADERS = List.of(
             "SUBSCRIBER_KEY",
             "MOBILE_USER_ID");

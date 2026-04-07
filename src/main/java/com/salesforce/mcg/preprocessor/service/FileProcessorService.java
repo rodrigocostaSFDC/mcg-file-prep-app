@@ -39,8 +39,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 import static com.salesforce.mcg.preprocessor.helper.FileProcessorHelper.*;
 
@@ -90,9 +88,6 @@ import static com.salesforce.mcg.preprocessor.helper.FileProcessorHelper.*;
 @Service
 @Slf4j
 public class FileProcessorService {
-
-    private static final Pattern URL_PATTERN = Pattern
-            .compile("(https?://[^\\s\"'<>]+)", Pattern.CASE_INSENSITIVE);
 
     private static final DateTimeFormatter TS_FMT = DateTimeFormatter
             .ofPattern("yyyyMMddHHmmss");
@@ -192,7 +187,8 @@ public class FileProcessorService {
                 return 0L;
             }
 
-            var mapping = getColumnMapping(buildHeaderIndex(header));
+            Map<String, Integer> headerIndex = buildHeaderIndex(header);
+            LineColumns.validateHeader(headerIndex);
             if (includeHeader) {
                 writer.writeNext(appendColumns(header, "ISTELCEL", "SHORTCODE", "ERROR"), false);
             }
@@ -208,7 +204,7 @@ public class FileProcessorService {
                 fileChunk = new FileChunk(chunk, writer, fileRequestId, chunkIndex, totalRows);
 
                 if (chunk.size() >= chunkSize) {
-                    long errors = processChunk(fileChunk, mapping);
+                    long errors = processChunk(fileChunk, headerIndex);
                     errorRows.addAndGet(errors);
                     chunkIndex++;
                     chunk.clear();
@@ -216,7 +212,7 @@ public class FileProcessorService {
             }
             // flush remaining rows
             if (Objects.nonNull(fileChunk) && !fileChunk.isEmpty()) {
-                long errors = processChunk(fileChunk, mapping);
+                long errors = processChunk(fileChunk, headerIndex);
                 errorRows.addAndGet(errors);
             }
         }
@@ -233,15 +229,20 @@ public class FileProcessorService {
      *
      * @return number of rows in this chunk that had a recoverable error
      */
-    private long processChunk(FileChunk fileChunk, ColumnMapping mapping) {
+    private long processChunk(FileChunk fileChunk, Map<String, Integer> headerIndex) {
 
         int size = fileChunk.chunk().size();
         fileChunk.totalRows().addAndGet(size);
 
-        // Step 1: prepare all phones from this chunk
+        // Step 1: resolve row data by header name and prepare all phones from this chunk
+        List<LineColumns> chunkLines = new ArrayList<>(size);
         List<Long> phones = new ArrayList<>(size);
-        for (String[] r : fileChunk.chunk()) {
-            phones.add(parsePhone(safeGet(r, mapping.phoneColIdx())));
+        for (int i = 0; i < size; i++) {
+            String[] row = fileChunk.chunk().get(i);
+            int rowNum = Long.valueOf(((fileChunk.chunkIndex() - 1) * this.chunkSize + i)).intValue();
+            LineColumns lineColumns = new LineColumns(headerIndex, row, rowNum);
+            chunkLines.add(lineColumns);
+            phones.add(parsePhone(lineColumns.getPhoneNumber()));
         }
 
         // Step 2: Batch Telcel lookup for this chunk
@@ -251,35 +252,40 @@ public class FileProcessorService {
         String ts = businessClock.now().format(TS_FMT);
         List<ProcessedLine> lines = new ArrayList<>(size);
         for (int i = 0; i < size; i++) {
+
             String[] row = fileChunk.chunk().get(i);
+            LineColumns lineColumns = chunkLines.get(i);
             var phone = phones.get(i);
             var isTelcel = telcelMap.getOrDefault(phone, false);
-            var rawPhone = safeGet(row, mapping.phoneColIdx());
-            var rowNum = Long.valueOf(((fileChunk.chunkIndex() - 1) * this.chunkSize + i))
-                    .intValue();
-            var telefone = safeGet(row, 0);
-            var email = safeGet(row, 3);
-            var celular = safeGet(row, 4);
-            var apiKey = safeGet(row, 17);
+            var rowNum = Long.valueOf(((fileChunk.chunkIndex() - 1) * this.chunkSize + i)).intValue();
+            var phoneNumber = lineColumns.getPhoneNumber();
+            var mobileNumber = lineColumns.getMobileNumber();
+            var email = lineColumns.getEmail();
+            var apiKey = lineColumns.getApiKey();
             var shortCode = shortCodeBalancer.assignShortCode(isTelcel);
-            var tcode = safeGet(row, 18);
+            var tcode = lineColumns.getTcode();
+            var templateName = lineColumns.getTemplateName();
 
             lines.add(ProcessedLine.builder()
                     .rowIndex(rowNum)
                     .originalColumns(row)
+                    .lineColumns(lineColumns)
                     .shortCode(shortCode)
                     .apiKey(apiKey)
-                    .shortCode(shortCode)
-                    .subscriberKey(celular)
-                    .phoneNumber(telefone)
+                    .mobileNumber(mobileNumber)
+                    .phoneNumber(phoneNumber)
                     .email(email)
+                    .company(company)
+                    .messageType(SMS)
+                    .templateName(templateName)
+                    .transactionDate(transactionDate)
                     .tcode(tcode)
                     .telcel(isTelcel)
                     .build());
         }
 
         // Step 3: Shorten URLs found in each URL column, in-place in originalColumns
-        replaceUrlsInChunk(lines, mapping, fileChunk.fileRequestId());
+        replaceUrlsInChunk(lines, fileChunk.fileRequestId());
         log.info("⚙️ Chunk #{}: {} rows (total: {})",
                 fileChunk.chunkIndex(), size, fileChunk.totalRows().get());
 
@@ -312,36 +318,22 @@ public class FileProcessorService {
      */
     private void replaceUrlsInChunk(
             List<ProcessedLine> lines,
-            ColumnMapping mapping,
             String fileRequestId) {
-        if (mapping.urlColIdxs().isEmpty()) return;
-
-        record UrlRef(int lineIndex, int colIdx) {}
+        record UrlRef(int lineIndex, int columnIndex, String originalUrl) {}
 
         List<ShortUrlRequest> requests = new ArrayList<>();
         List<UrlRef> refs = new ArrayList<>();
 
         for (int li = 0; li < lines.size(); li++) {
             var line = lines.get(li);
-            for (int colIdx : mapping.urlColIdxs()) {
-                var value = safeGet(line.getOriginalColumns(), colIdx);
-                if (value == null || value.isBlank()) continue;
-                Matcher matcher = URL_PATTERN.matcher(value);
-                if (!matcher.find()) continue;
-                var apiKey = mapping.apiKeyColIdx() >= 0 ? nullToEmpty(safeGet(line.getOriginalColumns(), mapping.apiKeyColIdx())) : "";
-                var templateName = mapping.templateNameColIdx() >= 0 ? nullToEmpty(safeGet(line.getOriginalColumns(), mapping.templateNameColIdx())) : "";
-                var subscriberKey = mapping.subscriberKeyColIdx() >= 0
-                        ? nullToEmpty(safeGet(line.getOriginalColumns(), mapping.subscriberKeyColIdx()))
-                        : "";
-                if (subscriberKey.isEmpty()) {
-                    subscriberKey = nullToEmpty(line.getPhoneNumber());
-                }
-                var requestId = getRequestId(uniqueEnvId, fileRequestId, line.getRowIndex(), colIdx);
+            var urlFields = line.getLineColumns().collectUrlsToShorten();
+            for (LineColumns.UrlField urlField : urlFields) {
+                var requestId = getRequestId(uniqueEnvId, fileRequestId, line.getRowIndex(), urlField.columnIndex());
                 requests.add(new ShortUrlRequest(
                         line.getId(),
-                        value,
+                        urlField.originalUrl(),
                         requestId,
-                        subscriberKey,
+                        line.getMobileNumber(),
                         line.getPhoneNumber(),
                         line.getEmail(),
                         line.getCompany(),
@@ -352,7 +344,7 @@ public class FileProcessorService {
                         line.getTransactionId(),
                         transactionDate,
                         line.getTcode()));
-                refs.add(new UrlRef(li, colIdx));
+                refs.add(new UrlRef(li, urlField.columnIndex(), urlField.originalUrl()));
             }
         }
 
@@ -367,6 +359,9 @@ public class FileProcessorService {
             }
         } catch (Exception e) {
             log.error("Short URL batch failed for chunk — keeping original URLs: {}", e.getMessage());
+            for (UrlRef ref : refs) {
+                lines.get(ref.lineIndex()).getLineColumns().setUrlValue(ref.columnIndex(), ref.originalUrl());
+            }
             lines.forEach(l -> {
                 l.setHasError(true);
                 l.setErrorMessage("Short URL error: " + e.getMessage());
@@ -374,7 +369,7 @@ public class FileProcessorService {
             return;
         }
 
-        // Write short URLs back into the column in-place
+        // Write short URLs back into the original row using placeholders
         for (int i = 0; i < refs.size(); i++) {
             UrlRef ref = refs.get(i);
             ProcessedLine line = lines.get(ref.lineIndex());
@@ -382,15 +377,13 @@ public class FileProcessorService {
 
             if (resp.error() != null) {
                 // Collision — surface as a row error, leave original URL intact
+                line.getLineColumns().setUrlValue(ref.columnIndex(), ref.originalUrl());
                 line.setHasError(true);
                 line.setErrorMessage(resp.error());
                 continue;
             }
 
-            String[] cols = line.getOriginalColumns();
-            String original = safeGet(cols, ref.colIdx());
-            cols[ref.colIdx()] = URL_PATTERN.matcher(original)
-                    .replaceFirst(Matcher.quoteReplacement(resp.shortUrl()));
+            line.getLineColumns().setUrlValue(ref.columnIndex(), resp.shortUrl());
         }
     }
 
@@ -424,6 +417,5 @@ public class FileProcessorService {
             pool.shutdown();
         }
     }
-
 
 }

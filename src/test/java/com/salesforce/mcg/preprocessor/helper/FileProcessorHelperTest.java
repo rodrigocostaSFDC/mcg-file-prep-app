@@ -2,16 +2,13 @@ package com.salesforce.mcg.preprocessor.helper;
 
 import com.opencsv.CSVReader;
 import com.opencsv.ICSVWriter;
-import com.salesforce.mcg.preprocessor.data.ColumnMapping;
 import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
-import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class FileProcessorHelperTest {
 
@@ -38,26 +35,6 @@ class FileProcessorHelperTest {
     void requestIdHelper_work() {
         assertThat(FileProcessorHelper.getRequestId("dyno1", "fileA", 3, 1))
                 .isEqualTo("dyno1_fileA_3_1");
-    }
-
-    @Test
-    void headerAndMappingResolution_workAndValidateRequiredPhone() {
-        Map<String, Integer> index = FileProcessorHelper.buildHeaderIndex(
-                new String[]{"\uFEFF celular ", "url", "URL2", "TCODE", "TNAME", "SUBSCRIBER_KEY"});
-        assertThat(index.get("CELULAR")).isEqualTo(0);
-
-        ColumnMapping mapping = FileProcessorHelper.getColumnMapping(index);
-        assertThat(mapping.phoneColIdx()).isEqualTo(0);
-        assertThat(mapping.urlColIdxs()).containsExactly(1, 2);
-        assertThat(mapping.apiKeyColIdx()).isEqualTo(3);
-        assertThat(mapping.templateNameColIdx()).isEqualTo(4);
-        assertThat(mapping.subscriberKeyColIdx()).isEqualTo(5);
-
-        assertThat(FileProcessorHelper.resolveColumn(index, java.util.List.of("MISSING"))).isEqualTo(-1);
-        assertThatThrownBy(() -> FileProcessorHelper.resolvePhoneColumn(Map.of("URL", 1)))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("CELULAR")
-                .hasMessageContaining("TELEFONO");
     }
 
     @Test
