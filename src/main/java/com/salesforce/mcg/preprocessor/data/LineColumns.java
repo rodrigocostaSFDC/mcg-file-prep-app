@@ -1,5 +1,7 @@
 package com.salesforce.mcg.preprocessor.data;
 
+import org.apache.logging.log4j.util.Strings;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -20,8 +22,8 @@ public class LineColumns {
     public static final String COL_URL = "URL";
     public static final String COL_URL2 = "URL2";
 
-    private static final List<String> PHONE_HEADERS = List.of(COL_CELULAR, COL_TELEFONO);
-    private static final List<String> MOBILE_HEADERS = List.of(COL_SUBSCRIBER_KEY, COL_MOBILE_USER_ID);
+    private static final List<String> PHONE_HEADERS = List.of(COL_TELEFONO);
+    private static final List<String> MOBILE_HEADERS = List.of(COL_CELULAR);
     private static final List<String> URL_HEADERS = List.of(COL_URL, COL_URL2);
     private static final List<String> EMAIL_HEADERS = List.of(COL_EMAIL);
     private static final List<String> API_KEY_HEADERS = List.of(COL_CAMPAIGN_CODE);
@@ -63,7 +65,7 @@ public class LineColumns {
     }
 
     public String getPhoneNumber() {
-        return safeGet(phoneIndex);
+        return safeGet(phoneIndex).replaceAll("^52", Strings.EMPTY);
     }
 
     public String getMobileNumber() {
