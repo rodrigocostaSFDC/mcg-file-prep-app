@@ -150,28 +150,36 @@ public class SftpClientService {
     }
 
     /**
-     * Moves the processed input file from {@link SftpServerProperties#inputDir()} to
-     * {@code inputDir})} ()} (DONE), renaming the leaf to match
+     * Moves the processed input from {@link SftpServerProperties#inputDir()} (inbox) to
+     * {@code inputDir}/{@link SftpServerProperties#processedSubfolder()} (DONE), renaming the leaf to match
      * the READY output name per {@link ProcessedInputNaming} so inbox is empty and DONE/READY basenames align.
+     *
+     * <p>If {@code processedSubfolder} is blank, the move is skipped (same contract as local {@code SftpService}).
      *
      * @param inputFileName     original inbox filename (no path prefix)
      * @param readyOutputFileName final enriched filename under {@link SftpServerProperties#outputDir()}
      */
     public void moveInputToProcessed(String inputFileName, String readyOutputFileName) throws SftpException, JSchException {
         var props = getProps();
+        var subfolder = props.processedSubfolder();
+        if (subfolder == null || subfolder.isBlank()) {
+            log.warn("processedSubfolder not configured — skipping move to DONE for {}", inputFileName);
+            return;
+        }
         var destLeaf = ProcessedInputNaming.processedLeafMatchingReady(
                 inputFileName, readyOutputFileName);
         var srcPath = "%s/%s".formatted(props.inputDir(), inputFileName);
-        var destPath = "%s/%s".formatted(props.outputDir(), destLeaf);
+        var destDir = "%s/%s".formatted(props.inputDir(), subfolder);
+        var destPath = "%s/%s".formatted(destDir, destLeaf);
         var channel = getSftpChannel();
         try {
             try {
                 log.info("ℹ️ srcPath: '{}' -> destPath: '{}'", srcPath, destPath);
-                channel.stat(props.outputDir());
+                channel.stat(destDir);
             } catch (SftpException e) {
                 if (e.id == ChannelSftp.SSH_FX_NO_SUCH_FILE) {
-                    channel.mkdir(props.outputDir());
-                    log.info("ℹ️ Created processed subfolder: {}", props.outputDir());
+                    channel.mkdir(destDir);
+                    log.info("ℹ️ Created processed subfolder: {}", destDir);
                 } else {
                     throw e;
                 }

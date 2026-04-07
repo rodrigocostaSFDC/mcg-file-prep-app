@@ -61,7 +61,7 @@ class ApplicationLauncherTest {
     private void stubActiveSftpProperties() {
         when(sftpPropertyContext.getPropertiesForActiveCompany()).thenReturn(new SftpServerProperties(
                 "telmex", "localhost", 22, "u", "p",
-                "", "", "", true, "/inbox", "/out", "*", 20000, 3, 30000));
+                "", "", "", true, "/inbox", "/out", "", "*", 20000, 3, 30000));
     }
 
     @Test

@@ -52,7 +52,7 @@ class SftpClientServiceTest {
 
     private void stubProps() {
         when(sftpPropertyContext.getPropertiesForActiveCompany()).thenReturn(
-                new SftpServerProperties("telmex", "localhost", 22, "u", "p", "", "", "", true, "/in", "/out", "*", 20000, 3, 30000));
+                new SftpServerProperties("telmex", "localhost", 22, "u", "p", "", "", "", true, "/in", "/out", "", "*", 20000, 3, 30000));
     }
 
     @Test
@@ -92,15 +92,25 @@ class SftpClientServiceTest {
     }
 
     @Test
-    void moveInputToProcessed_createsOutputDirWhenMissing() throws Exception {
-        stubProps();
+    void moveInputToProcessed_createsProcessedSubdirUnderInputWhenMissing() throws Exception {
+        when(sftpPropertyContext.getPropertiesForActiveCompany()).thenReturn(
+                new SftpServerProperties("telmex", "localhost", 22, "u", "p", "", "", "", true, "/in", "/out", "done", "*", 20000, 3, 30000));
         stubSftpDefaults();
-        doThrow(new SftpException(ChannelSftp.SSH_FX_NO_SUCH_FILE, "missing")).when(channel).stat("/out");
+        doThrow(new SftpException(ChannelSftp.SSH_FX_NO_SUCH_FILE, "missing")).when(channel).stat("/in/done");
 
         service.moveInputToProcessed("a.txt", "b.txt");
 
-        verify(channel).mkdir("/out");
-        verify(channel).rename("/in/a.txt", "/out/b.txt");
+        verify(channel).mkdir("/in/done");
+        verify(channel).rename("/in/a.txt", "/in/done/b.txt");
+    }
+
+    @Test
+    void moveInputToProcessed_skipsWhenProcessedSubfolderBlank() throws Exception {
+        stubProps();
+
+        service.moveInputToProcessed("a.txt", "b.txt");
+
+        verify(session, never()).openChannel("sftp");
     }
 
     @Test

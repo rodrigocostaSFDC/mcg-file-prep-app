@@ -16,8 +16,9 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  * @param passphrase passphrase for the sftp server
  * @param knownHosts allow to connect to unknown hosts
  * @param allowUnknownKeys allow to connect with unknown keys
- * @param inputDir sftp input dir
- * @param outputDir sftp output dir
+ * @param inputDir sftp input dir (inbox)
+ * @param outputDir sftp output dir (READY / enriched uploads)
+ * @param processedSubfolder relative folder under {@code inputDir} for successfully processed inputs (DONE); blank skips the move
  * @param filePattern patterns files must match to be processed
  */
 public record SftpServerProperties(
@@ -32,6 +33,7 @@ public record SftpServerProperties(
         @DefaultValue("false") boolean allowUnknownKeys,
         @DefaultValue("/") String inputDir,
         @DefaultValue("/") String outputDir,
+        @DefaultValue("") String processedSubfolder,
         @DefaultValue("_S_") String filePattern,
         @DefaultValue("20000") int serverAliveInterval,
         @DefaultValue("3") int setServerAliveCountMax,

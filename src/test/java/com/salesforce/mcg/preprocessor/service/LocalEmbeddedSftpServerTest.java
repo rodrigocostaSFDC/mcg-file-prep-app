@@ -28,6 +28,7 @@ class LocalEmbeddedSftpServerTest {
                 true,
                 "/",
                 "/ready_files",
+                "",
                 "*",
                 20000,
                 3,
