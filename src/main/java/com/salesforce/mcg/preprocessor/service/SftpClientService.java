@@ -184,11 +184,42 @@ public class SftpClientService {
                     throw e;
                 }
             }
-            channel.rename(srcPath, destPath);
+            if (!remoteFileExists(channel, srcPath)) {
+                if (remoteFileExists(channel, destPath)) {
+                    log.info("ℹ️ Inbox file already absent at {}; DONE entry present at {} — skipping move",
+                            srcPath, destPath);
+                    return;
+                }
+                throw new SftpException(ChannelSftp.SSH_FX_NO_SUCH_FILE,
+                        "Inbox file missing at " + srcPath + " and no DONE archive at " + destPath
+                                + " (removed by external automation during processing?)");
+            }
+            try {
+                channel.rename(srcPath, destPath);
+            } catch (SftpException e) {
+                if (e.id == ChannelSftp.SSH_FX_NO_SUCH_FILE && remoteFileExists(channel, destPath)) {
+                    log.info("ℹ️ Rename reported missing source; DONE entry present at {} — treating as success",
+                            destPath);
+                    return;
+                }
+                throw e;
+            }
             log.info("✅ Moved input to processed (DONE name aligned with READY '{}'): {} -> {}",
                     readyOutputFileName, srcPath, destPath);
         } finally {
             channel.disconnect();
+        }
+    }
+
+    private static boolean remoteFileExists(ChannelSftp channel, String path) throws SftpException {
+        try {
+            channel.stat(path);
+            return true;
+        } catch (SftpException e) {
+            if (e.id == ChannelSftp.SSH_FX_NO_SUCH_FILE) {
+                return false;
+            }
+            throw e;
         }
     }
 

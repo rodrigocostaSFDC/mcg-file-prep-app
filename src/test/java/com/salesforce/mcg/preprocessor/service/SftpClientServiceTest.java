@@ -20,9 +20,11 @@ import java.io.InputStream;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -96,11 +98,45 @@ class SftpClientServiceTest {
         when(sftpPropertyContext.getPropertiesForActiveCompany()).thenReturn(
                 new SftpServerProperties("telmex", "localhost", 22, "u", "p", "", "", "", true, "/in", "/out", "done", "*", 20000, 3, 30000));
         stubSftpDefaults();
+        var attrs = mock(com.jcraft.jsch.SftpATTRS.class);
         doThrow(new SftpException(ChannelSftp.SSH_FX_NO_SUCH_FILE, "missing")).when(channel).stat("/in/done");
+        when(channel.stat("/in/a.txt")).thenReturn(attrs);
 
         service.moveInputToProcessed("a.txt", "b.txt");
 
         verify(channel).mkdir("/in/done");
+        verify(channel).rename("/in/a.txt", "/in/done/b.txt");
+    }
+
+    @Test
+    void moveInputToProcessed_whenInboxAlreadyGoneButDoneExists_skipsRename() throws Exception {
+        when(sftpPropertyContext.getPropertiesForActiveCompany()).thenReturn(
+                new SftpServerProperties("telmex", "localhost", 22, "u", "p", "", "", "", true, "/in", "/out", "done", "*", 20000, 3, 30000));
+        stubSftpDefaults();
+        var attrs = mock(com.jcraft.jsch.SftpATTRS.class);
+        when(channel.stat("/in/done")).thenReturn(attrs);
+        doThrow(new SftpException(ChannelSftp.SSH_FX_NO_SUCH_FILE, "missing")).when(channel).stat("/in/a.txt");
+        when(channel.stat("/in/done/b.txt")).thenReturn(attrs);
+
+        service.moveInputToProcessed("a.txt", "b.txt");
+
+        verify(channel, never()).rename(anyString(), anyString());
+    }
+
+    @Test
+    void moveInputToProcessed_whenRenameNoSuchFileButDoneExists_treatsAsSuccess() throws Exception {
+        when(sftpPropertyContext.getPropertiesForActiveCompany()).thenReturn(
+                new SftpServerProperties("telmex", "localhost", 22, "u", "p", "", "", "", true, "/in", "/out", "done", "*", 20000, 3, 30000));
+        stubSftpDefaults();
+        var attrs = mock(com.jcraft.jsch.SftpATTRS.class);
+        when(channel.stat("/in/done")).thenReturn(attrs);
+        when(channel.stat("/in/a.txt")).thenReturn(attrs);
+        doThrow(new SftpException(ChannelSftp.SSH_FX_NO_SUCH_FILE, "missing")).when(channel)
+                .rename("/in/a.txt", "/in/done/b.txt");
+        when(channel.stat("/in/done/b.txt")).thenReturn(attrs);
+
+        service.moveInputToProcessed("a.txt", "b.txt");
+
         verify(channel).rename("/in/a.txt", "/in/done/b.txt");
     }
 
