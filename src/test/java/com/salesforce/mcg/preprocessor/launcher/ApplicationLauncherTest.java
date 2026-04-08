@@ -6,7 +6,6 @@ import com.salesforce.mcg.preprocessor.properties.SftpServerProperties;
 import com.salesforce.mcg.preprocessor.service.FileProcessorService;
 import com.salesforce.mcg.preprocessor.service.GatewayCallbackService;
 import com.salesforce.mcg.preprocessor.service.SftpClientService;
-import com.salesforce.mcg.preprocessor.util.PreprocessorBusinessClock;
 import com.salesforce.mcg.preprocessor.util.SftpPropertyContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -19,7 +18,6 @@ import org.springframework.test.util.ReflectionTestUtils;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
-import java.time.LocalDateTime;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
@@ -40,8 +38,6 @@ class ApplicationLauncherTest {
     @Mock
     private GatewayCallbackService gatewayCallbackService;
     @Mock
-    private PreprocessorBusinessClock businessClock;
-    @Mock
     private SftpPropertyContext sftpPropertyContext;
 
     private ApplicationLauncher launcher;
@@ -52,10 +48,8 @@ class ApplicationLauncherTest {
                 sftpClientService,
                 fileProcessorService,
                 gatewayCallbackService,
-                businessClock,
                 sftpPropertyContext);
         ReflectionTestUtils.setField(launcher, "autoShutdown", false);
-        ReflectionTestUtils.setField(launcher, "outputTimestampSuffix", false);
     }
 
     private void stubActiveSftpProperties() {
@@ -98,13 +92,11 @@ class ApplicationLauncherTest {
     }
 
     @Test
-    void buildOutputFileName_appendsTimestampWhenEnabled() {
-        ReflectionTestUtils.setField(launcher, "outputTimestampSuffix", true);
-        when(businessClock.now()).thenReturn(LocalDateTime.of(2026, 4, 1, 23, 30));
-
-        String output = ReflectionTestUtils.invokeMethod(launcher, "buildOutputFileName", "HEROKU2345_S_DEMO.txt");
-
-        assertThat(output).isEqualTo("HEROKU2345_S_DEMO_20260401_2330.txt");
+    void buildOutputFileName_stripsTxtOrZipAndAppendsTxtNoTimestamp() {
+        String fromTxt = ReflectionTestUtils.invokeMethod(launcher, "buildOutputFileName", "HEROKU2345_S_DEMO.txt");
+        String fromZip = ReflectionTestUtils.invokeMethod(launcher, "buildOutputFileName", "HEROKU2345_S_DEMO.zip");
+        assertThat(fromTxt).isEqualTo("HEROKU2345_S_DEMO.txt");
+        assertThat(fromZip).isEqualTo("HEROKU2345_S_DEMO.txt");
     }
 
     @Test

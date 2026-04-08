@@ -20,7 +20,6 @@ import com.jcraft.jsch.SftpException;
 import com.salesforce.mcg.preprocessor.service.FileProcessorService;
 import com.salesforce.mcg.preprocessor.service.GatewayCallbackService;
 import com.salesforce.mcg.preprocessor.service.SftpClientService;
-import com.salesforce.mcg.preprocessor.util.PreprocessorBusinessClock;
 import com.salesforce.mcg.preprocessor.util.SftpPropertyContext;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -33,7 +32,6 @@ import org.springframework.stereotype.Component;
 import java.io.InputStream;
 import java.io.PipedInputStream;
 import java.io.PipedOutputStream;
-import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -80,18 +78,10 @@ public class ApplicationLauncher implements ApplicationRunner {
     private final SftpClientService sftpClientService;
     private final FileProcessorService fileProcessorService;
     private final GatewayCallbackService gatewayCallback;
-    private final PreprocessorBusinessClock businessClock;
     private final SftpPropertyContext sftpPropertyContext;
 
     @Value("${app.auto-shutdown:true}")
     private boolean autoShutdown;
-
-    /**
-     * When true, append _yyyyMMdd_HHmm to output filename before .txt (in {@code preprocessor.time-zone}).
-     * Ensures MC file drop automation sees a new file (rename may not trigger).
-     */
-    @Value("${preprocessor.output.timestamp-suffix:false}")
-    private boolean outputTimestampSuffix;
 
     @Override
     public void run(ApplicationArguments args) {
@@ -277,6 +267,7 @@ public class ApplicationLauncher implements ApplicationRunner {
     /**
      * Output is always a {@code .txt} on SFTP (pipe-delimited enriched file).
      * Strips {@code .zip} or {@code .txt} from the input basename before adding {@code .txt}.
+     * Input filenames are assumed unique; no timestamp suffix is appended.
      */
     private String buildOutputFileName(String originalName) {
         String lower = originalName.toLowerCase();
@@ -286,10 +277,6 @@ public class ApplicationLauncher implements ApplicationRunner {
         } else {
             int dot = originalName.lastIndexOf('.');
             base = dot > 0 ? originalName.substring(0, dot) : originalName;
-        }
-        if (outputTimestampSuffix) {
-            String ts = businessClock.now().format(DateTimeFormatter.ofPattern(FILENAME_DATETIME_FORMAT_PATTERN));
-            return base + String.valueOf(CHAR_UNDERSCORE) + ts + FILE_EXTENSION_TXT;
         }
         return base + FILE_EXTENSION_TXT;
     }

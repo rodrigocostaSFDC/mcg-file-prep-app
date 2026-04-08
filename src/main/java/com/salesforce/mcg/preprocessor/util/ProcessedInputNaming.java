@@ -6,8 +6,7 @@ import static com.salesforce.mcg.preprocessor.common.AppConstants.*;
 
 /**
  * Aligns the filename used when moving inbox input to the processed (DONE) area with the
- * enriched file name on READY/output, so automation can pair them (same basename, including
- * any {@code _yyyyMMdd_HHmm} suffix from {@code preprocessor.output.timestamp-suffix}).
+ * enriched file name on READY/output, so automation can pair them (same basename / stem).
  */
 public final class ProcessedInputNaming {
 
