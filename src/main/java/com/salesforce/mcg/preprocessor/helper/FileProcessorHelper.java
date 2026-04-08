@@ -59,6 +59,20 @@ public class FileProcessorHelper {
         }
     }
 
+    public static String digitsOnly(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return "";
+        }
+        return raw.replaceAll("[^0-9]", "");
+    }
+
+    /** Key for {@link com.salesforce.mcg.preprocessor.service.TelcelCheckService#isTelcelBatch} result map (national 10-digit). */
+    public static long telcelResultMapKey(long parsedCelularOrTenDigit) {
+        return parsedCelularOrTenDigit > 520_000_000_000L
+                ? parsedCelularOrTenDigit - 520_000_000_000L
+                : parsedCelularOrTenDigit;
+    }
+
     /**
      * Builds a case-insensitive header name → column index map from the header row.
      * BOM characters and surrounding whitespace are stripped.

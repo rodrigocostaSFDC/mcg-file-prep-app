@@ -230,8 +230,8 @@ public class ShortUrlService {
                     csvDateFormat(now.toInstant(ZoneOffset.UTC)),     // Creation Date
                     csvEscape(String.valueOf(ZERO)),                  // Redirect Count
                     csvEscape(req.requestId()),                       // Request Id
-                    csvEscape(req.subscriberKey()),                   // Subscriber Key
-                    csvEscape(req.phoneNumber()),                     // Phone Number
+                    csvEscape(req.mobileNumber()),
+                    csvEscape(req.phoneNumber()),
                     csvEscape(req.email()),                           // Email
                     csvEscape(company),                               // Company
                     csvEscape(SMS),                                   // Message Type

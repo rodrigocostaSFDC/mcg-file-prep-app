@@ -1,5 +1,6 @@
 package com.salesforce.mcg.preprocessor.data;
 
+import com.salesforce.mcg.preprocessor.helper.FileProcessorHelper;
 import org.apache.logging.log4j.util.Strings;
 
 import java.util.ArrayList;
@@ -11,8 +12,6 @@ public class LineColumns {
 
     public static final String COL_CELULAR = "CELULAR";
     public static final String COL_TELEFONO = "TELEFONO";
-    public static final String COL_MOBILE_USER_ID = "MOBILE_USER_ID";
-    public static final String COL_SUBSCRIBER_KEY = "SUBSCRIBER_KEY";
     public static final String COL_EMAIL = "EMAIL";
     public static final String COL_CAMPAIGN_CODE = "CAMPAIGNCODE";
     public static final String COL_TCODE = "TCODE";
@@ -22,8 +21,6 @@ public class LineColumns {
     public static final String COL_URL = "URL";
     public static final String COL_URL2 = "URL2";
 
-    private static final List<String> PHONE_HEADERS = List.of(COL_TELEFONO);
-    private static final List<String> MOBILE_HEADERS = List.of(COL_CELULAR);
     private static final List<String> URL_HEADERS = List.of(COL_URL, COL_URL2);
     private static final List<String> EMAIL_HEADERS = List.of(COL_EMAIL);
     private static final List<String> API_KEY_HEADERS = List.of(COL_CAMPAIGN_CODE);
@@ -43,8 +40,8 @@ public class LineColumns {
     public LineColumns(Map<String, Integer> headerIndex, String[] row, int rowIndex) {
         this.row = Objects.requireNonNull(row, "row");
         this.rowIndex = rowIndex;
-        this.phoneIndex = resolveFirst(headerIndex, PHONE_HEADERS);
-        this.mobileIndex = resolveFirst(headerIndex, MOBILE_HEADERS);
+        this.mobileIndex = headerIndex.get(COL_CELULAR);
+        this.phoneIndex = headerIndex.get(COL_TELEFONO);
         this.emailIndex = resolveFirst(headerIndex, EMAIL_HEADERS);
         this.apiKeyIndex = resolveFirst(headerIndex, API_KEY_HEADERS);
         this.templateIndex = resolveFirst(headerIndex, TEMPLATE_HEADERS);
@@ -56,20 +53,29 @@ public class LineColumns {
     }
 
     public static void validateHeader(Map<String, Integer> headerIndex) {
-        boolean hasPhone = PHONE_HEADERS.stream().anyMatch(headerIndex::containsKey);
-        if (!hasPhone) {
+        if (!headerIndex.containsKey(COL_CELULAR) || !headerIndex.containsKey(COL_TELEFONO)) {
             throw new IllegalArgumentException(
-                    "Required column 'CELULAR' (or fallback 'TELEFONO') not found in header. Available columns: "
+                    "Required columns 'CELULAR' and 'TELEFONO' must both be present. Available columns: "
                             + headerIndex.keySet());
         }
     }
 
+    public int getRowIndex() {
+        return rowIndex;
+    }
+
+    /** Digits-only CELULAR (12-digit {@code 52…} for DB / Telcel). */
+    public String getCelularDigits() {
+        return FileProcessorHelper.digitsOnly(safeGet(mobileIndex));
+    }
+
+    /** TELEFONO: single leading {@code 52} removed, then digits (10-digit national). */
     public String getPhoneNumber() {
-        return safeGet(phoneIndex).replaceAll("^52", Strings.EMPTY);
+        return FileProcessorHelper.digitsOnly(safeGet(phoneIndex).replaceAll("^52", Strings.EMPTY));
     }
 
     public String getMobileNumber() {
-        return safeGet(mobileIndex);
+        return getCelularDigits();
     }
 
     public String getEmail() {

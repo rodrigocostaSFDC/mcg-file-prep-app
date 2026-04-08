@@ -32,6 +32,13 @@ class FileProcessorHelperTest {
     }
 
     @Test
+    void digitsOnly_and_telcelResultMapKey() {
+        assertThat(FileProcessorHelper.digitsOnly("52 55-1234-5678")).isEqualTo("525512345678");
+        assertThat(FileProcessorHelper.telcelResultMapKey(525512345678L)).isEqualTo(5512345678L);
+        assertThat(FileProcessorHelper.telcelResultMapKey(5512345678L)).isEqualTo(5512345678L);
+    }
+
+    @Test
     void requestIdHelper_work() {
         assertThat(FileProcessorHelper.getRequestId("dyno1", "fileA", 3, 1))
                 .isEqualTo("dyno1_fileA_3_1");

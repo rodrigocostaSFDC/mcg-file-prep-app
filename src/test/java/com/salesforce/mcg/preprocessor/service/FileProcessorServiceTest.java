@@ -27,10 +27,15 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 /**
- * Unit tests for {@link FileProcessorService}.
+ * Unit tests for {@link FileProcessorService}. Input rows require both {@code CELULAR} and {@code TELEFONO}.
  */
 @ExtendWith(MockitoExtension.class)
 class FileProcessorServiceTest {
+
+    /** 12-digit mobile + 10-digit national (same subscriber) for mocks. */
+    private static final String C = "525512345678";
+    private static final String T = "5512345678";
+    private static final String CT = "CELULAR|TELEFONO|";
 
     @Mock
     private TelcelCheckService telcelCheckService;
@@ -48,32 +53,33 @@ class FileProcessorServiceTest {
 
     @Test
     void buildHeaderIndex_shouldMapHeadersCaseInsensitive() {
-        String[] header = {"celular", "URL", "url2", "Other"};
+        String[] header = {"celular", "telefono", "URL", "url2", "Other"};
         Map<String, Integer> index = FileProcessorHelper.buildHeaderIndex(header);
 
         assertThat(index.get("CELULAR")).isEqualTo(0);
-        assertThat(index.get("URL")).isEqualTo(1);
-        assertThat(index.get("URL2")).isEqualTo(2);
-        assertThat(index.get("OTHER")).isEqualTo(3);
+        assertThat(index.get("TELEFONO")).isEqualTo(1);
+        assertThat(index.get("URL")).isEqualTo(2);
+        assertThat(index.get("URL2")).isEqualTo(3);
+        assertThat(index.get("OTHER")).isEqualTo(4);
     }
 
     @Test
     void buildHeaderIndex_shouldStripBomAndWhitespace() {
-        String[] header = {"\uFEFF CELULAR ", "  URL  "};
+        String[] header = {"\uFEFF CELULAR ", " TELEFONO ", "  URL  "};
         Map<String, Integer> index = FileProcessorHelper.buildHeaderIndex(header);
 
         assertThat(index.get("CELULAR")).isEqualTo(0);
-        assertThat(index.get("URL")).isEqualTo(1);
+        assertThat(index.get("TELEFONO")).isEqualTo(1);
+        assertThat(index.get("URL")).isEqualTo(2);
     }
 
     @Test
-    void process_shouldResolveCelularAndFallbackToTelefono() throws IOException, CsvValidationException {
-        // Header with TELEFONO but no CELULAR
-        String input = "TELEFONO|URL|URL2\n5512345678|https://a.com|https://b.com\n";
+    void process_shouldAcceptCelularAndTelefono() throws IOException, CsvValidationException {
+        String input = CT + "URL|URL2\n" + C + "|" + T + "|https://a.com|https://b.com\n";
         ByteArrayInputStream in = new ByteArrayInputStream(input.getBytes(StandardCharsets.UTF_8));
         ByteArrayOutputStream out = new ByteArrayOutputStream();
 
-        when(telcelCheckService.isTelcelBatch(anyList())).thenReturn(java.util.Map.of(5512345678L, false));
+        when(telcelCheckService.isTelcelBatch(anyList())).thenReturn(Map.of(5512345678L, false));
         when(shortCodeBalancer.assignShortCode(false)).thenReturn("89992");
         when(shortUrlService.shortUrlBatch(anyList())).thenAnswer(inv -> {
             List<?> reqs = inv.getArgument(0);
@@ -86,19 +92,30 @@ class FileProcessorServiceTest {
 
         assertThat(errors).isEqualTo(0);
         String output = out.toString(StandardCharsets.UTF_8);
-        assertThat(output).contains("TELEFONO|URL|URL2|ISTELCEL|SHORTCODE|ERROR");
+        assertThat(output).contains("CELULAR|TELEFONO|URL|URL2|ISTELCEL|SHORTCODE|ERROR");
         assertThat(output).contains("false|89992|");
+        verify(telcelCheckService).isTelcelBatch(List.of(525512345678L));
     }
 
     @Test
-    void process_shouldThrowWhenNeitherCelularNorTelefonoPresent() throws IOException, CsvValidationException {
-        String input = "FOO|BAR|BAZ\n1|2|3\n";
-        ByteArrayInputStream in = new ByteArrayInputStream(input.getBytes(StandardCharsets.UTF_8));
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-
-        assertThatThrownBy(() -> fileProcessorService.process(in, out, "run1"))
+    void process_shouldThrowWhenCelularMissing() {
+        String input = "TELEFONO|URL\n" + T + "|https://a.com\n";
+        assertThatThrownBy(() -> fileProcessorService.process(
+                new ByteArrayInputStream(input.getBytes(StandardCharsets.UTF_8)),
+                new ByteArrayOutputStream(),
+                "run1"))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("CELULAR")
+                .hasMessageContaining("CELULAR");
+    }
+
+    @Test
+    void process_shouldThrowWhenTelefonoMissing() {
+        String input = "CELULAR|URL\n" + C + "|https://a.com\n";
+        assertThatThrownBy(() -> fileProcessorService.process(
+                new ByteArrayInputStream(input.getBytes(StandardCharsets.UTF_8)),
+                new ByteArrayOutputStream(),
+                "run1"))
+                .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("TELEFONO");
     }
 
@@ -117,7 +134,7 @@ class FileProcessorServiceTest {
     @Test
     void process_shouldSkipHeaderWhenConfigured() throws IOException, CsvValidationException {
         fileProcessorService = buildService(100, false, 1);
-        String input = "TELEFONO|URL\n5512345678| \n";
+        String input = CT + "URL\n" + C + "|" + T + "| \n";
         ByteArrayInputStream in = new ByteArrayInputStream(input.getBytes(StandardCharsets.UTF_8));
         ByteArrayOutputStream out = new ByteArrayOutputStream();
 
@@ -129,14 +146,14 @@ class FileProcessorServiceTest {
         assertThat(errors).isZero();
         String normalized = normalizeOutput(out);
         assertThat(normalized).doesNotContain("ISTELCEL|SHORTCODE|ERROR");
-        assertThat(normalized).startsWith("5512345678| |false|89992|");
+        assertThat(normalized).startsWith(C + "|" + T + "| |false|89992|");
         verify(shortUrlService, never()).shortUrlBatch(anyList());
     }
 
     @Test
     void process_shouldMarkErrorWhenShortUrlBatchFailsAndTrimErrorColumn() throws IOException, CsvValidationException {
         String longMessage = "x".repeat(500);
-        String input = "TELEFONO|URL\n5512345678|https://a.com\n";
+        String input = CT + "URL\n" + C + "|" + T + "|https://a.com\n";
         ByteArrayInputStream in = new ByteArrayInputStream(input.getBytes(StandardCharsets.UTF_8));
         ByteArrayOutputStream out = new ByteArrayOutputStream();
 
@@ -157,7 +174,9 @@ class FileProcessorServiceTest {
 
     @Test
     void process_shouldMarkOnlyRowsWithCollisionError() throws IOException, CsvValidationException {
-        String input = "TELEFONO|URL\n5511111111|https://a.com\n5522222222|https://b.com\n";
+        String input = CT + "URL\n"
+                + "525511111111|5511111111|https://a.com\n"
+                + "525522222222|5522222222|https://b.com\n";
         ByteArrayInputStream in = new ByteArrayInputStream(input.getBytes(StandardCharsets.UTF_8));
         ByteArrayOutputStream out = new ByteArrayOutputStream();
 
@@ -180,7 +199,7 @@ class FileProcessorServiceTest {
 
     @Test
     void process_shouldSkipShortUrlWhenNoUrlColumnExists() throws IOException, CsvValidationException {
-        String input = "TELEFONO|NOMBRE\n5512345678|John\n";
+        String input = CT + "NOMBRE\n" + C + "|" + T + "|John\n";
         ByteArrayInputStream in = new ByteArrayInputStream(input.getBytes(StandardCharsets.UTF_8));
         ByteArrayOutputStream out = new ByteArrayOutputStream();
 
@@ -190,13 +209,52 @@ class FileProcessorServiceTest {
         long errors = fileProcessorService.process(in, out, "run-no-url-columns");
 
         assertThat(errors).isZero();
-        assertThat(normalizeOutput(out)).contains("5512345678|John|true|89990|");
+        assertThat(normalizeOutput(out)).contains(T + "|John|true|89990|");
         verify(shortUrlService, never()).shortUrlBatch(anyList());
     }
 
     @Test
+    void process_shouldErrorAndSkipShortUrlWhenCelularBlankButUrlPresent() throws IOException, CsvValidationException {
+        String input = CT + "URL\n|" + T + "|https://a.com\n";
+        ByteArrayInputStream in = new ByteArrayInputStream(input.getBytes(StandardCharsets.UTF_8));
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+
+        when(telcelCheckService.isTelcelBatch(anyList())).thenReturn(Map.of(5512345678L, false));
+        when(shortCodeBalancer.assignShortCode(false)).thenReturn("89992");
+
+        long errors = fileProcessorService.process(in, out, "run-empty-celular");
+
+        assertThat(errors).isEqualTo(1);
+        verify(shortUrlService, never()).shortUrlBatch(anyList());
+        assertThat(normalizeOutput(out)).contains(FileProcessorService.ERROR_CELULAR_REQUIRED_FOR_SHORT_URL);
+        assertThat(normalizeOutput(out)).contains("https://a.com");
+    }
+
+    @Test
+    void process_shouldShortenWhenTelefonoBlankButCelularPresent() throws IOException, CsvValidationException {
+        String input = CT + "URL\n" + C + "||https://a.com\n";
+        ByteArrayInputStream in = new ByteArrayInputStream(input.getBytes(StandardCharsets.UTF_8));
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+
+        when(telcelCheckService.isTelcelBatch(anyList())).thenReturn(Map.of(5512345678L, false));
+        when(shortCodeBalancer.assignShortCode(false)).thenReturn("89992");
+        when(shortUrlService.shortUrlBatch(anyList())).thenReturn(List.of(
+                new ShortUrlResponse(null, null, null, "https://a.com", "https://short/a", null)
+        ));
+
+        long errors = fileProcessorService.process(in, out, "run-empty-telefono");
+
+        assertThat(errors).isZero();
+        verify(shortUrlService, times(1)).shortUrlBatch(anyList());
+        ArgumentCaptor<List<ShortUrlRequest>> captor = ArgumentCaptor.forClass(List.class);
+        verify(shortUrlService).shortUrlBatch(captor.capture());
+        assertThat(captor.getValue().get(0).phoneNumber()).isEmpty();
+        assertThat(normalizeOutput(out)).contains("https://short/a");
+    }
+
+    @Test
     void process_shouldShortenNonBlankUrlColumnValuesEvenWhenNotHttp() throws IOException, CsvValidationException {
-        String input = "TELEFONO|URL|URL2\n5512345678|not-a-url| \n";
+        String input = CT + "URL|URL2\n" + C + "|" + T + "|not-a-url| \n";
         ByteArrayInputStream in = new ByteArrayInputStream(input.getBytes(StandardCharsets.UTF_8));
         ByteArrayOutputStream out = new ByteArrayOutputStream();
 
@@ -209,16 +267,16 @@ class FileProcessorServiceTest {
         long errors = fileProcessorService.process(in, out, "run-invalid-url");
 
         assertThat(errors).isZero();
-        assertThat(normalizeOutput(out)).contains("5512345678|https://short/a| |false|89992|");
+        assertThat(normalizeOutput(out)).contains(T + "|https://short/a| |false|89992|");
         verify(shortUrlService, times(1)).shortUrlBatch(anyList());
     }
 
     @Test
     void process_shouldUseParallelShortUrlBatchesForLargeRequests() throws IOException, CsvValidationException {
         fileProcessorService = buildService(500, true, 2);
-        StringBuilder builder = new StringBuilder("TELEFONO|URL|URL2\n");
+        StringBuilder builder = new StringBuilder(CT + "URL|URL2\n");
         for (int i = 0; i < 100; i++) {
-            builder.append("5512345").append(String.format("%03d", i))
+            builder.append(C).append("|").append(T)
                     .append("|https://example.com/a/").append(i)
                     .append("|https://example.com/b/").append(i)
                     .append('\n');
@@ -229,7 +287,7 @@ class FileProcessorServiceTest {
         when(telcelCheckService.isTelcelBatch(anyList())).thenAnswer(inv -> {
             @SuppressWarnings("unchecked")
             List<Long> phones = inv.getArgument(0);
-            return phones.stream().collect(java.util.stream.Collectors.toMap(p -> p, p -> false));
+            return phones.stream().collect(java.util.stream.Collectors.toMap(p -> p, p -> false, (a, b) -> a));
         });
         when(shortCodeBalancer.assignShortCode(false)).thenReturn("89992");
         when(shortUrlService.shortUrlBatch(anyList())).thenAnswer(inv -> {
@@ -253,7 +311,7 @@ class FileProcessorServiceTest {
     @Test
     void process_shouldUseSingleShortUrlBatchWhenParallelThresholdNotMet() throws IOException, CsvValidationException {
         fileProcessorService = buildService(500, true, 4);
-        String input = "TELEFONO|URL\n5512345678|https://a.com\n";
+        String input = CT + "URL\n" + C + "|" + T + "|https://a.com\n";
         ByteArrayInputStream in = new ByteArrayInputStream(input.getBytes(StandardCharsets.UTF_8));
         ByteArrayOutputStream out = new ByteArrayOutputStream();
 
@@ -273,7 +331,9 @@ class FileProcessorServiceTest {
     @Test
     void process_shouldProcessEachChunkWhenChunkSizeIsOne() throws IOException, CsvValidationException {
         fileProcessorService = buildService(1, true, 1);
-        String input = "TELEFONO|URL\n5511111111|https://a.com\n5522222222|https://b.com\n";
+        String input = CT + "URL\n"
+                + "525511111111|5511111111|https://a.com\n"
+                + "525522222222|5522222222|https://b.com\n";
         ByteArrayInputStream in = new ByteArrayInputStream(input.getBytes(StandardCharsets.UTF_8));
         ByteArrayOutputStream out = new ByteArrayOutputStream();
 
@@ -294,8 +354,8 @@ class FileProcessorServiceTest {
     }
 
     @Test
-    void process_shouldUseProvidedSubscriberKeyWhenHeaderExists() throws IOException, CsvValidationException {
-        String input = "TELEFONO|URL|SUBSCRIBER_KEY\n5512345678|https://a.com|sub-001\n";
+    void process_shortUrlRequest_passesCelularAndTelefonoToBatch() throws IOException, CsvValidationException {
+        String input = CT + "URL\n" + C + "|" + T + "|https://a.com\n";
         ByteArrayInputStream in = new ByteArrayInputStream(input.getBytes(StandardCharsets.UTF_8));
         ByteArrayOutputStream out = new ByteArrayOutputStream();
 
@@ -305,13 +365,14 @@ class FileProcessorServiceTest {
                 new ShortUrlResponse(null, null, null, "https://a.com", "https://short/a", null)
         ));
 
-        long errors = fileProcessorService.process(in, out, "run-subscriber-present");
+        long errors = fileProcessorService.process(in, out, "run-shorturl-fields");
 
         assertThat(errors).isZero();
         ArgumentCaptor<List<ShortUrlRequest>> captor = ArgumentCaptor.forClass(List.class);
         verify(shortUrlService).shortUrlBatch(captor.capture());
         ShortUrlRequest request = captor.getValue().get(0);
-        assertThat(request.subscriberKey()).isEqualTo("sub-001");
+        assertThat(request.mobileNumber()).isEqualTo("525512345678");
+        assertThat(request.phoneNumber()).isEqualTo("5512345678");
     }
 
     @Test
@@ -321,7 +382,7 @@ class FileProcessorServiceTest {
                 "id-1",
                 "https://a.com",
                 "req-1",
-                "sub-1",
+                "525512345678",
                 "5512345678",
                 "",
                 "telmex",
@@ -363,5 +424,4 @@ class FileProcessorServiceTest {
     private String normalizeOutput(ByteArrayOutputStream out) {
         return out.toString(StandardCharsets.UTF_8).replace("\r\n", "\n");
     }
-
 }

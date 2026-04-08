@@ -10,11 +10,11 @@ class LineColumnsTest {
 
     @Test
     void collectUrlsToShorten_shouldWorkByColumnAndNotByContent() {
-        String[] row = {"5512345678", "not-a-url", "sub-1"};
+        String[] row = {"525512345678", "5512345678", "not-a-url"};
         Map<String, Integer> headerIndex = Map.of(
-                "TELEFONO", 0,
-                "URL", 1,
-                "SUBSCRIBER_KEY", 2
+                "CELULAR", 0,
+                "TELEFONO", 1,
+                "URL", 2
         );
 
         LineColumns columns = new LineColumns(headerIndex, row, 7);
@@ -24,7 +24,6 @@ class LineColumnsTest {
         assertThat(fields.get(0).originalUrl()).isEqualTo("not-a-url");
 
         columns.setUrlValue(fields.get(0).columnIndex(), "https://short/a");
-        assertThat(row[1]).isEqualTo("https://short/a");
+        assertThat(row[2]).isEqualTo("https://short/a");
     }
-
 }

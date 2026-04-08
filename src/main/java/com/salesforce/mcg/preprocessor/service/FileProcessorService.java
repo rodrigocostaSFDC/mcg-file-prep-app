@@ -30,7 +30,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.time.Instant;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -89,12 +88,13 @@ import static com.salesforce.mcg.preprocessor.helper.FileProcessorHelper.*;
 @Slf4j
 public class FileProcessorService {
 
-    private static final DateTimeFormatter TS_FMT = DateTimeFormatter
-            .ofPattern("yyyyMMddHHmmss");
-
     /** Max length for the appended {@code ERROR} column text (inclusive). */
     public static final int MAX_ERROR_COLUMN_LENGTH = 400;
     public static final String SMS = "SMS";
+
+    /** Written to the {@code ERROR} column when a row has URLs to shorten but {@code CELULAR} is blank. */
+    public static final String ERROR_CELULAR_REQUIRED_FOR_SHORT_URL =
+            "CELULAR is required for short URL enrichment";
 
     private final TelcelCheckService telcelCheckService;
     private final ShortCodeBalancer shortCodeBalancer;
@@ -140,12 +140,10 @@ public class FileProcessorService {
     /**
      * Processes the pipe-delimited file in a chunked-streaming fashion.
      *
-     * <p>Column positions are resolved once from the header row by name, so the
-     * file works regardless of column order.  Required columns: {@code CELULAR}
-     * (or {@code TELEFONO}), {@code URL}, {@code URL2}.  Optional: {@code TCODE} → api_key,
-     * {@code TNAME} → template_name, {@code SUBSCRIBER_KEY} or {@code MOBILE_USER_ID} → subscriber_key
-     * (if absent, subscriber_key defaults to the phone column value).
-     * Phone/phone_number from {@code CELULAR} or {@code TELEFONO}.  {@code message_type} = "SMS".
+     * <p>Column positions are resolved once from the header row by name. Required: {@code CELULAR}
+     * (12-digit mobile {@code 52…}), {@code TELEFONO} (10-digit national, or 12-digit with leading {@code 52}
+     * stripped once), {@code URL}, {@code URL2}. Optional: {@code TCODE} → api_key, {@code TNAME} → template_name.
+     * Short-URL batch maps {@code CELULAR} → {@code mobile_number}, {@code TELEFONO} → {@code phone_number}.
      *
      * <h3>How URL/URL2 map to short-URL batch results</h3>
      * For each chunk, the preprocessor builds two parallel lists:
@@ -242,21 +240,20 @@ public class FileProcessorService {
             int rowNum = Long.valueOf(((fileChunk.chunkIndex() - 1) * this.chunkSize + i)).intValue();
             LineColumns lineColumns = new LineColumns(headerIndex, row, rowNum);
             chunkLines.add(lineColumns);
-            phones.add(parsePhone(lineColumns.getPhoneNumber()));
+            phones.add(parsePhone(lineColumns.getCelularDigits()));
         }
 
         // Step 2: Batch Telcel lookup for this chunk
         Map<Long, Boolean> telcelMap = telcelCheckService.isTelcelBatch(phones);
 
-        // Step 3: Build ProcessedLine entries — one per row. Preserve raw phone from file (CELULAR/TELEFONO).
-        String ts = businessClock.now().format(TS_FMT);
+        // Step 3: Build ProcessedLine entries — one per row.
         List<ProcessedLine> lines = new ArrayList<>(size);
         for (int i = 0; i < size; i++) {
 
             String[] row = fileChunk.chunk().get(i);
             LineColumns lineColumns = chunkLines.get(i);
             var phone = phones.get(i);
-            var isTelcel = telcelMap.getOrDefault(phone, false);
+            var isTelcel = telcelMap.getOrDefault(telcelResultMapKey(phone), false);
             var rowNum = Long.valueOf(((fileChunk.chunkIndex() - 1) * this.chunkSize + i)).intValue();
             var phoneNumber = lineColumns.getPhoneNumber();
             var mobileNumber = lineColumns.getMobileNumber();
@@ -311,6 +308,8 @@ public class FileProcessorService {
      * For each URL column index, collects all non-blank values across the chunk,
      * shortens them in a single batch call, then writes the short URLs back into
      * {@code line.originalColumns[colIdx]} in-place.
+     * Blank {@code CELULAR} with URLs to shorten: no short-URL request; row error
+     * {@link #ERROR_CELULAR_REQUIRED_FOR_SHORT_URL}. Blank {@code TELEFONO} is allowed.
      * <p>
      * Ordering: {@code requests} and {@code refs} are built in nested (line, URL column) order.
      * The short-URL service returns {@link ShortUrlResponse}s in the same order as {@code requests},
@@ -327,6 +326,14 @@ public class FileProcessorService {
         for (int li = 0; li < lines.size(); li++) {
             var line = lines.get(li);
             var urlFields = line.getLineColumns().collectUrlsToShorten();
+            if (urlFields.isEmpty()) {
+                continue;
+            }
+            if (line.getLineColumns().getCelularDigits().isBlank()) {
+                line.setHasError(true);
+                line.setErrorMessage(ERROR_CELULAR_REQUIRED_FOR_SHORT_URL);
+                continue;
+            }
             for (LineColumns.UrlField urlField : urlFields) {
                 var requestId = getRequestId(uniqueEnvId, fileRequestId, line.getRowIndex(), urlField.columnIndex());
                 requests.add(new ShortUrlRequest(
@@ -348,7 +355,9 @@ public class FileProcessorService {
             }
         }
 
-        if (requests.isEmpty()) return;
+        if (requests.isEmpty()) {
+            return;
+        }
 
         List<ShortUrlResponse> responses;
         try {

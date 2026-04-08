@@ -50,7 +50,7 @@ class ShortUrlServiceTest {
         when(clock.now()).thenReturn(LocalDateTime.of(2026, 4, 1, 23, 0));
 
         ShortUrlRequest req = new ShortUrlRequest(
-                null, "https://a.com", "rid1", "sub", "5512345678", null,
+                null, "https://a.com", "rid1", "525512345678", "5512345678", null,
                 "telmex", "SMS", "89992", "k", "tpl", "tx", Instant.now(), "tc");
         List<ShortUrlResponse> out = service.shortUrlBatch(List.of(req));
 
@@ -64,7 +64,7 @@ class ShortUrlServiceTest {
     void shortUrlBatch_insertPathWithSkippedLoadsExistingShortUrl() {
         when(clock.now()).thenReturn(LocalDateTime.of(2026, 4, 1, 23, 0));
         ShortUrlRequest req = new ShortUrlRequest(
-                null, "https://a.com", "rid1", "sub", "5512345678", null,
+                null, "https://a.com", "rid1", "525512345678", "5512345678", null,
                 "telmex", "SMS", "89992", "k", "tpl", "tx", Instant.now(), "tc");
         List<ShortUrlResponse> out = service.shortUrlBatch(List.of(req));
 
