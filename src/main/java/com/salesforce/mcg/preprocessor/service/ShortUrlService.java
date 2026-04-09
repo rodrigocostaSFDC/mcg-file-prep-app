@@ -78,6 +78,9 @@ public class ShortUrlService {
     private static final DateTimeFormatter FORMATER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
             .withZone(ZoneOffset.UTC);
 
+    private static final DateTimeFormatter TRANSACTION_DATE_FORMATTER =
+            DateTimeFormatter.ofPattern("yyyyMMddHHmmssSSS").withZone(ZoneOffset.UTC);
+
     private static final String DROP_TEMP_TABLE = "DROP TABLE IF EXISTS _shorturl_batch";
 
     private static final String CREATE_TEMP_TABLE = """
@@ -239,7 +242,7 @@ public class ShortUrlService {
                     csvEscape(req.apiKey()),                          // Api Key
                     csvEscape(req.templateName()),                    // Template Name
                     csvEscape(req.transactionId()),                   // Transaction Id
-                    csvDateFormat(req.transactionDate()),             // Transaction Date
+                    csvTransactionDateFormat(req.transactionDate()),  // Transaction Date (yyyyMMddHHmmssSSS)
                     csvEscape(req.tcode())                            // TCode
             );
            csv.append(String.join(String.valueOf(CHAR_COMMA), columns));
@@ -354,6 +357,13 @@ public class ShortUrlService {
             return Strings.EMPTY;
         }
         return FORMATER.format(instant);
+    }
+
+    private static String csvTransactionDateFormat(Instant instant) {
+        if (Objects.isNull(instant)) {
+            return Strings.EMPTY;
+        }
+        return TRANSACTION_DATE_FORMATTER.format(instant);
     }
 
 }
