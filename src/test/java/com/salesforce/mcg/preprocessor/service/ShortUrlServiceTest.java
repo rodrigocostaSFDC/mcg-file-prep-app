@@ -15,6 +15,7 @@ import javax.sql.DataSource;
 import java.lang.reflect.Method;
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -35,6 +36,7 @@ class ShortUrlServiceTest {
 
     @BeforeEach
     void setUp() {
+        when(clock.getZone()).thenReturn(ZoneId.of("America/Mexico_City"));
         service = new ShortUrlService(jdbc, dataSource, clock);
         ReflectionTestUtils.setField(service, "baseDomain", "https://sho.rt");
         ReflectionTestUtils.setField(service, "maxAttempts", 3);

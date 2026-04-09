@@ -78,8 +78,8 @@ public class ShortUrlService {
     private static final DateTimeFormatter FORMATER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
             .withZone(ZoneOffset.UTC);
 
-    private static final DateTimeFormatter TRANSACTION_DATE_FORMATTER =
-            DateTimeFormatter.ofPattern("yyyyMMddHHmmssSSS").withZone(ZoneOffset.UTC);
+    private static final DateTimeFormatter TRANSACTION_DATE_PATTERN =
+            DateTimeFormatter.ofPattern("yyyyMMddHHmmssSSS");
 
     private static final String DROP_TEMP_TABLE = "DROP TABLE IF EXISTS _shorturl_batch";
 
@@ -182,6 +182,7 @@ public class ShortUrlService {
 
     private final DataSource dataSource;
     private final PreprocessorBusinessClock businessClock;
+    private final DateTimeFormatter transactionDateFormatter;
     private final java.security.SecureRandom random = new java.security.SecureRandom();
 
     @Value("${shorturl.base-domain:}")
@@ -194,6 +195,7 @@ public class ShortUrlService {
             JdbcTemplate jdbc, DataSource dataSource, PreprocessorBusinessClock businessClock) {
         this.dataSource = dataSource;
         this.businessClock = businessClock;
+        this.transactionDateFormatter = TRANSACTION_DATE_PATTERN.withZone(businessClock.getZone());
     }
 
     /**
@@ -359,11 +361,11 @@ public class ShortUrlService {
         return FORMATER.format(instant);
     }
 
-    private static String csvTransactionDateFormat(Instant instant) {
+    private String csvTransactionDateFormat(Instant instant) {
         if (Objects.isNull(instant)) {
             return Strings.EMPTY;
         }
-        return TRANSACTION_DATE_FORMATTER.format(instant);
+        return transactionDateFormatter.format(instant);
     }
 
 }
