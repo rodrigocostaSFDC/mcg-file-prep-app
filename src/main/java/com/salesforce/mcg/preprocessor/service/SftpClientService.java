@@ -151,25 +151,25 @@ public class SftpClientService {
 
     /**
      * Moves the processed input from {@link SftpServerProperties#inputDir()} (inbox) to
-     * {@code inputDir}/{@link SftpServerProperties#processedSubfolder()} (DONE), renaming the leaf to match
+     * {@link SftpServerProperties#processedDir()} (DONE), renaming the leaf to match
      * the READY output name per {@link ProcessedInputNaming} so inbox is empty and DONE/READY basenames align.
      *
-     * <p>If {@code processedSubfolder} is blank, the move is skipped (same contract as local {@code SftpService}).
+     * <p>If {@code processedDir} is blank, the move is skipped.
      *
      * @param inputFileName     original inbox filename (no path prefix)
      * @param readyOutputFileName final enriched filename under {@link SftpServerProperties#outputDir()}
      */
     public void moveInputToProcessed(String inputFileName, String readyOutputFileName) throws SftpException, JSchException {
         var props = getProps();
-        var subfolder = props.processedSubfolder();
-        if (subfolder == null || subfolder.isBlank()) {
-            log.warn("processedSubfolder not configured — skipping move to DONE for {}", inputFileName);
+        var processedDir = props.processedDir();
+        if (processedDir == null || processedDir.isBlank()) {
+            log.warn("processedDir not configured — skipping move to DONE for {}", inputFileName);
             return;
         }
         var destLeaf = ProcessedInputNaming.processedLeafMatchingReady(
                 inputFileName, readyOutputFileName);
         var srcPath = "%s/%s".formatted(props.inputDir(), inputFileName);
-        var destDir = "%s/%s".formatted(props.inputDir(), subfolder);
+        var destDir = processedDir;
         var destPath = "%s/%s".formatted(destDir, destLeaf);
         var channel = getSftpChannel();
         try {
