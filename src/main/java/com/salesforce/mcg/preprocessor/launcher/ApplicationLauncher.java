@@ -162,14 +162,6 @@ public class ApplicationLauncher implements ApplicationRunner {
             log.info("ℹ️ File {} complete — uploaded as {}, error rows: {}",
                     remotePath, outputFileName, errorRows);
 
-            // Move input to processed subfolder; notify gateway to launch next dyno if any
-            try {
-                sftpClientService.moveInputToProcessed(fileName, outputFileName);
-            } catch (Exception ex) {
-                log.warn("❌ Failed to move input to processed: {}", ex.getMessage());
-            }
-            processed.incrementAndGet();
-
         } catch (Exception e) {
             if (isRemoteFileMissing(e)) {
                 log.warn("⚠️ Input file not found on SFTP (skipping without rename): {}", remotePath);
@@ -183,7 +175,16 @@ public class ApplicationLauncher implements ApplicationRunner {
                 log.error("❌ Could not rename failed input with .hasErrors (file may be picked again): {}",
                         renameEx.getMessage());
             }
+            return;
         }
+
+        // Output fully uploaded and download stream closed — safe to move input to processed dir
+        try {
+            sftpClientService.moveInputToProcessed(fileName, outputFileName);
+        } catch (Exception ex) {
+            log.warn("❌ Failed to move input to processed: {}", ex.getMessage());
+        }
+        processed.incrementAndGet();
     }
 
     private boolean isRemoteFileMissing(Throwable ex) {
