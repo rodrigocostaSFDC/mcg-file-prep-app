@@ -1,0 +1,77 @@
+# ============================================================
+# mcg-file-preprocessor-app — Local Development Profile
+# ============================================================
+# Copy this file to application-local.properties and fill in your values.
+# Do NOT commit application-local.properties (it is in .gitignore).
+# ============================================================
+spring.config.activate.on-profile=local
+
+spring.application.name=mcg-file-preprocessor-app-local
+
+# Local PostgreSQL (matches docker-compose.yml)
+spring.datasource.url=jdbc:postgresql://localhost:5432/mcg_db?reWriteBatchedInserts=true
+spring.datasource.username=mcg_usr
+spring.datasource.password=CHANGE_ME
+
+# Local SFTP — mcg-sftp-preprocessor container (port 2225)
+sftp.mode=local
+sftp.preprocessor.telmex.company=telmex
+sftp.preprocessor.telmex.host=localhost
+sftp.preprocessor.telmex.port=2225
+sftp.preprocessor.telmex.username=prepuser
+sftp.preprocessor.telmex.password=CHANGE_ME
+sftp.preprocessor.telmex.input-dir=/
+sftp.preprocessor.telmex.output-dir=/ready_files
+sftp.preprocessor.telmex.processed-dir=/processed_files
+sftp.preprocessor.telmex.file-pattern=*_S_*
+sftp.preprocessor.telmex.allow-unknown-keys=true
+
+sftp.preprocessor.telnor.company=telnor
+sftp.preprocessor.telnor.host=localhost
+sftp.preprocessor.telnor.port=2225
+sftp.preprocessor.telnor.username=prepuser
+sftp.preprocessor.telnor.password=CHANGE_ME
+sftp.preprocessor.telnor.input-dir=/
+sftp.preprocessor.telnor.output-dir=/ready_files
+sftp.preprocessor.telnor.file-pattern=*_S_*
+sftp.preprocessor.telnor.allow-unknown-keys=true
+
+# Gateway callback
+preprocessor.gateway.callback.url=http://localhost:8083
+preprocessor.gateway.callback.secret=CHANGE_ME
+preprocessor.callback.secret=CHANGE_ME
+
+# Local short URL service
+shorturl.mode=direct
+shorturl.base-domain=http://localhost:8085
+shorturl.max-attempts=3
+
+shorturl.base-url=http://localhost:8085
+shorturl.batch-endpoint=/api/shorturl/batch
+shorturl.connect-timeout-ms=3000
+shorturl.read-timeout-ms=5000
+
+# Keep dyno alive during local testing (set false to prevent System.exit)
+app.auto-shutdown=false
+
+# Process 1 file at a time locally; increase to 2 to test parallel mode
+preprocessor.concurrency=1
+
+# preprocessor.output.copy-instead-of-rename=true
+
+# 10 000 rows/chunk: fewer DB round-trips at 10M scale; safe for local heap.
+preprocessor.chunk-size=10000
+
+
+# ============================================================
+# Logging Configuration
+# ============================================================
+logging.level.com.salesforce.mcg.reprocessor=INFO
+logging.level.com.salesforce.mcg=INFO
+logging.level.io.r2dbc=WARN
+logging.level.com.zaxxer.hikari=ERROR
+logging.level.org.apache.kafka=ERROR
+logging.level.org.springframework=ERROR
+logging.level.org.apache.sshd=ERROR
+logging.level.com.salesforce.mcg.preprocessor.aspect=DEBUG
+logging.level.root=INFO
