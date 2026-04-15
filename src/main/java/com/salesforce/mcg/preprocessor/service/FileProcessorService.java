@@ -195,10 +195,21 @@ public class FileProcessorService {
             List<String[]> chunk = new ArrayList<>(chunkSize);
             String[] row;
             long chunkIndex = 1;
+            long skippedRows = 0;
 
-            while ((row = reader.readNext()) != null) {
+            while (true) {
+                try {
+                    row = reader.readNext();
+                } catch (CsvValidationException e) {
+                    skippedRows++;
+                    errorRows.incrementAndGet();
+                    log.warn("⚠️ Skipping malformed CSV row (line ~{}): {}",
+                            totalRows.get() + chunk.size() + skippedRows + 1, e.getMessage());
+                    continue;
+                }
+                if (row == null) break;
+
                 chunk.add(row);
-
                 fileChunk = new FileChunk(chunk, writer, fileRequestId, chunkIndex, totalRows);
 
                 if (chunk.size() >= chunkSize) {
@@ -207,6 +218,9 @@ public class FileProcessorService {
                     chunkIndex++;
                     chunk.clear();
                 }
+            }
+            if (skippedRows > 0) {
+                log.warn("⚠️ Total malformed CSV rows skipped: {}", skippedRows);
             }
             // flush remaining rows
             if (Objects.nonNull(fileChunk) && !fileChunk.isEmpty()) {
