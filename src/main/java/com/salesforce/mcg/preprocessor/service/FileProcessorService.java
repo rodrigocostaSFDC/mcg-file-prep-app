@@ -175,6 +175,8 @@ public class FileProcessorService {
 
         FileChunk fileChunk = null;
 
+        log.info("ℹ️ Processor thread started for runId={}", fileRequestId);
+
         try (CSVReader reader = getReaderForInputStream(inputStream);
              ICSVWriter writer = getWriterForOutputStream(outputStream)) {
 
@@ -184,6 +186,7 @@ public class FileProcessorService {
                 log.warn("⚠️ Input file is empty — nothing to process");
                 return 0L;
             }
+            log.info("ℹ️ Header read OK — {} columns", header.length);
 
             Map<String, Integer> headerIndex = buildHeaderIndex(header);
             LineColumns.validateHeader(headerIndex);
@@ -213,6 +216,8 @@ public class FileProcessorService {
                 fileChunk = new FileChunk(chunk, writer, fileRequestId, chunkIndex, totalRows);
 
                 if (chunk.size() >= chunkSize) {
+                    log.info("ℹ️ Chunk #{} read complete ({} rows) — starting Telcel+ShortURL…",
+                            chunkIndex, chunk.size());
                     long errors = processChunk(fileChunk, headerIndex);
                     errorRows.addAndGet(errors);
                     chunkIndex++;
@@ -258,7 +263,9 @@ public class FileProcessorService {
         }
 
         // Step 2: Batch Telcel lookup for this chunk
+        log.info("ℹ️ Chunk #{}: Telcel batch lookup for {} phones…", fileChunk.chunkIndex(), phones.size());
         Map<Long, Boolean> telcelMap = telcelCheckService.isTelcelBatch(phones);
+        log.info("ℹ️ Chunk #{}: Telcel lookup done", fileChunk.chunkIndex());
 
         // Step 3: Build ProcessedLine entries — one per row.
         List<ProcessedLine> lines = new ArrayList<>(size);
@@ -296,6 +303,7 @@ public class FileProcessorService {
         }
 
         // Step 3: Shorten URLs found in each URL column, in-place in originalColumns
+        log.info("ℹ️ Chunk #{}: ShortURL batch for {} lines…", fileChunk.chunkIndex(), lines.size());
         replaceUrlsInChunk(lines, fileChunk.fileRequestId());
         log.info("⚙️ Chunk #{}: {} rows (total: {})",
                 fileChunk.chunkIndex(), size, fileChunk.totalRows().get());
