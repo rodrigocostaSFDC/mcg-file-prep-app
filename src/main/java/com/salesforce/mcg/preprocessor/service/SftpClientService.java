@@ -25,13 +25,18 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.integration.sftp.session.SftpRemoteFileTemplate;
+import org.springframework.retry.annotation.Backoff;
+import org.springframework.retry.annotation.Retryable;
 import org.springframework.stereotype.Service;
 
 import com.salesforce.mcg.preprocessor.util.PreprocessorInboxMarkers;
 import com.salesforce.mcg.preprocessor.util.ProcessedInputNaming;
 import com.salesforce.mcg.preprocessor.util.SftpPropertyContext;
 
+import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 import static com.salesforce.mcg.preprocessor.common.AppConstants.*;
 import static com.salesforce.mcg.preprocessor.helper.SftpClientHelper.*;
@@ -82,6 +87,8 @@ public class SftpClientService {
      * @param remotePath full remote path to the file
      * @return live stream — caller owns the close
      */
+    @Retryable(retryFor = {JSchException.class, IOException.class},
+            maxAttempts = 3, backoff = @Backoff(delay = 2000, multiplier = 2))
     public InputStream openDownloadStream(String remotePath) throws JSchException, SftpException{
 
         try {
@@ -105,7 +112,7 @@ public class SftpClientService {
      * @param content    source stream
      */
     public void uploadStreamTempThenRename(String tempName, String finalName, InputStream content)
-            throws SftpException, JSchException, java.io.IOException {
+            throws SftpException, JSchException, IOException {
         var props = getProps();
         var tempPath = "%s/%s".formatted(props.outputDir(), tempName);
         var finalPath = "%s/%s".formatted(props.outputDir(), finalName);
@@ -147,17 +154,22 @@ public class SftpClientService {
     }
 
     /**
-     * Streams content directly to {@code outputDir}/{@code fileName} — no temp file, no rename.
-     * Used by the disk-staging upload path where the full payload is already materialized locally.
+     * Opens a fresh stream from {@code localFile} and uploads to {@code outputDir}/{@code fileName}.
+     * Accepts a {@link Path} instead of {@link InputStream} so that {@code @Retryable} can safely
+     * re-open the file on each attempt after a transient connection failure.
      */
-    public void uploadOutputFile(String fileName, InputStream content) {
+    @Retryable(retryFor = {JSchException.class, IOException.class},
+            maxAttempts = 3, backoff = @Backoff(delay = 2000, multiplier = 2))
+    public void uploadOutputFile(String fileName, Path localFile) throws IOException {
         var props = getProps();
         var remotePath = "%s/%s".formatted(props.outputDir(), fileName);
         log.info("📡 Streaming upload to final name: {}", remotePath);
-        remoteFileTemplate.execute(session -> {
-            session.write(content, remotePath);
-            return null;
-        });
+        try (InputStream in = Files.newInputStream(localFile)) {
+            remoteFileTemplate.execute(session -> {
+                session.write(in, remotePath);
+                return null;
+            });
+        }
         log.info("✅ Upload complete: {}", remotePath);
     }
 
@@ -171,6 +183,8 @@ public class SftpClientService {
      * @param inputFileName     original inbox filename (no path prefix)
      * @param readyOutputFileName final enriched filename under {@link SftpServerProperties#outputDir()}
      */
+    @Retryable(retryFor = {JSchException.class, IOException.class},
+            maxAttempts = 3, backoff = @Backoff(delay = 2000, multiplier = 2))
     public void moveInputToProcessed(String inputFileName, String readyOutputFileName) throws SftpException, JSchException {
         var props = getProps();
         var processedDir = props.processedDir();
@@ -238,6 +252,8 @@ public class SftpClientService {
     /**
      * Renames {@code inputDir}/{@code fileName} to the same directory with {@code .hasErrors} appended.
      */
+    @Retryable(retryFor = {JSchException.class, IOException.class},
+            maxAttempts = 3, backoff = @Backoff(delay = 2000, multiplier = 2))
     public void renameInputMarkHasErrors(String fileName) throws SftpException, JSchException {
         var props = getProps();
         if (PreprocessorInboxMarkers.isHasErrorsMarked(fileName)) {

@@ -220,9 +220,7 @@ public class ApplicationLauncher implements ApplicationRunner {
             pool.shutdown();
             long errorRows = processorFuture.get();
 
-            try (InputStream in = Files.newInputStream(localFile)) {
-                sftpClientService.uploadOutputFile(outputFileName, in);
-            }
+            sftpClientService.uploadOutputFile(outputFileName, localFile);
 
             return errorRows;
         } finally {

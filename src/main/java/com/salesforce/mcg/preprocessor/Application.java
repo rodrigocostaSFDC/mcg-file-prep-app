@@ -14,6 +14,7 @@ import org.springframework.boot.Banner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.retry.annotation.EnableRetry;
 import picocli.CommandLine;
 
 import java.time.Instant;
@@ -31,6 +32,7 @@ import java.util.Set;
  * and only then starts Spring Boot.
  */
 @SpringBootApplication
+@EnableRetry
 @Getter
 @Slf4j
 public class Application {

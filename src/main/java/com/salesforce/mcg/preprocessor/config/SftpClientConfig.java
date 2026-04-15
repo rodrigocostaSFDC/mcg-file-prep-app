@@ -98,6 +98,12 @@ public class SftpClientConfig {
         factory.setPassword(props.password());
         factory.setAllowUnknownKeys(props.allowUnknownKeys());
         factory.setTimeout(props.setTimeout());
+        var sessionConfig = new Properties();
+        sessionConfig.put("ServerAliveInterval", String.valueOf(props.serverAliveInterval()));
+        sessionConfig.put("ServerAliveCountMax", String.valueOf(props.setServerAliveCountMax()));
+        factory.setConfig(sessionConfig);
+        log.info("ℹ️ SftpSessionFactory heartbeat: interval={}ms, maxCount={}",
+                props.serverAliveInterval(), props.setServerAliveCountMax());
         return factory;
     }
 
