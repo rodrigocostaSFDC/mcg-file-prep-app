@@ -1,0 +1,19 @@
+# ---------------------------------------------------------------------------
+# Local development: Docker SFTP for large-file testing.
+#
+# Usage:
+#   docker compose up -d
+#   # Then run the app with SFTP_MODE=docker --spring.profiles.active=local
+#
+# Drop test files into ./sftp/inbox_docker/ — the app reads from /
+# and writes enriched output to /ready_files inside the container.
+# ---------------------------------------------------------------------------
+
+services:
+  sftp-preprocessor:
+    image: atmoz/sftp
+    ports:
+      - "2225:22"
+    volumes:
+      - ./sftp/inbox_docker:/home/prepuser/upload
+    command: prepuser:pass:1001
