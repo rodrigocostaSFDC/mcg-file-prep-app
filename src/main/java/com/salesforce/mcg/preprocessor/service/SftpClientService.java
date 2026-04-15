@@ -31,7 +31,12 @@ import com.salesforce.mcg.preprocessor.util.PreprocessorInboxMarkers;
 import com.salesforce.mcg.preprocessor.util.ProcessedInputNaming;
 import com.salesforce.mcg.preprocessor.util.SftpPropertyContext;
 
+import org.springframework.messaging.MessagingException;
+
+import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 import static com.salesforce.mcg.preprocessor.common.AppConstants.*;
 import static com.salesforce.mcg.preprocessor.helper.SftpClientHelper.*;
@@ -67,6 +72,12 @@ public class SftpClientService {
      */
     @Value("${preprocessor.output.copy-instead-of-rename:false}")
     private boolean copyInsteadOfRename;
+
+    @Value("${sftp.upload.max-retries:3}")
+    private int uploadMaxRetries;
+
+    @Value("${sftp.upload.retry-delay-ms:5000}")
+    private long uploadRetryDelayMs;
 
     /**
      * Opens a streaming download from the given remote path.
@@ -242,6 +253,56 @@ public class SftpClientService {
             log.info("ℹ️ Marked failed input: {} -> {}", srcPath, destPath);
         } finally {
             channel.disconnect();
+        }
+    }
+
+    /**
+     * Streams {@code content} directly to {@code outputDir/fileName} (final name — no temp/rename).
+     * Used by the disk-staging path where the local file is already complete.
+     */
+    public void uploadOutputFile(String fileName, InputStream content) {
+        var props = getProps();
+        var remotePath = "%s/%s".formatted(props.outputDir(), fileName);
+        log.info("📡 Streaming upload to {}", remotePath);
+        remoteFileTemplate.execute(session -> {
+            session.write(content, remotePath);
+            return null;
+        });
+        log.info("✅ Upload complete: {}", remotePath);
+    }
+
+    /**
+     * Uploads a local file to SFTP with retry. Each attempt opens a fresh {@link InputStream}
+     * from {@code localFile}, so a partially consumed stream from a failed attempt is discarded.
+     *
+     * @param fileName  destination filename inside {@code outputDir}
+     * @param localFile path to the complete local file
+     */
+    public void uploadOutputFileWithRetry(String fileName, Path localFile) throws IOException {
+        var props = getProps();
+        var remotePath = "%s/%s".formatted(props.outputDir(), fileName);
+
+        for (int attempt = 1; attempt <= uploadMaxRetries; attempt++) {
+            try (InputStream in = Files.newInputStream(localFile)) {
+                log.info("📡 Upload attempt {}/{} to {}", attempt, uploadMaxRetries, remotePath);
+                remoteFileTemplate.execute(session -> {
+                    session.write(in, remotePath);
+                    return null;
+                });
+                log.info("✅ Upload complete: {}", remotePath);
+                return;
+            } catch (MessagingException e) {
+                log.warn("⚠️ Upload attempt {}/{} failed: {}", attempt, uploadMaxRetries, e.getMessage());
+                if (attempt >= uploadMaxRetries) {
+                    throw new IOException("SFTP upload failed after " + uploadMaxRetries + " attempts: " + remotePath, e);
+                }
+                try {
+                    Thread.sleep(uploadRetryDelayMs * attempt);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    throw new IOException("Upload retry interrupted", ie);
+                }
+            }
         }
     }
 

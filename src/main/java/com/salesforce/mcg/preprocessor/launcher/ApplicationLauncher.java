@@ -30,11 +30,16 @@ import org.springframework.boot.ApplicationRunner;
 import org.springframework.stereotype.Component;
 
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.io.PipedInputStream;
 import java.io.PipedOutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
@@ -83,6 +88,12 @@ public class ApplicationLauncher implements ApplicationRunner {
     @Value("${app.auto-shutdown:true}")
     private boolean autoShutdown;
 
+    @Value("${preprocessor.output.stage-to-disk-before-upload:false}")
+    private boolean stageOutputToDiskBeforeUpload;
+
+    @Value("${preprocessor.output.staging-dir:}")
+    private String outputStagingDir;
+
     @Override
     public void run(ApplicationArguments args) {
 
@@ -93,7 +104,10 @@ public class ApplicationLauncher implements ApplicationRunner {
         // in which case shutdown hooks never run — you will not see POST /api/preprocessor/next.
         // For a graceful test, use: heroku ps:restart --dyno-name run.NNNN
         var threadName = "preprocessor-shutdown-hook";
-        Runtime.getRuntime().addShutdownHook(new Thread(gatewayCallback::notifyNext, threadName));
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            deleteOrphanStagingFilesBestEffort();
+            gatewayCallback.notifyNext();
+        }, threadName));
 
         var file = requireSingleOption(args, "file");
         var company = requireSingleOption(args, "company");
@@ -157,7 +171,9 @@ public class ApplicationLauncher implements ApplicationRunner {
 
             var processStream = openProcessStream(fileName, downloadStream);
             var tempOutputName = "temp" + System.currentTimeMillis() + ".txt";
-            var errorRows = processAndUploadViaPipe(processStream, runId, tempOutputName, outputFileName);
+            long errorRows = stageOutputToDiskBeforeUpload
+                    ? processAndUploadViaLocalStaging(processStream, runId, outputFileName)
+                    : processAndUploadViaPipe(processStream, runId, tempOutputName, outputFileName);
 
             log.info("ℹ️ File {} complete — uploaded as {}, error rows: {}",
                     remotePath, outputFileName, errorRows);
@@ -229,6 +245,83 @@ public class ApplicationLauncher implements ApplicationRunner {
         }
 
         return processorFuture.get();
+    }
+
+    /**
+     * Writes the full enriched file to local disk, then uploads from disk with retry.
+     */
+    private long processAndUploadViaLocalStaging(InputStream processStream, String runId,
+            String outputFileName) throws Exception {
+
+        Path stagingDir = resolveOutputStagingDirectory();
+        Path localFile = Files.createTempFile(stagingDir, "preprocessor-" + runId + "-", ".staging");
+        log.info("ℹ️ Staging preprocessor output on disk: {}", localFile.toAbsolutePath());
+
+        try {
+            var pool = Executors.newSingleThreadExecutor(
+                    r -> new Thread(r, "processor-%s".formatted(runId)));
+
+            var processorFuture = pool.submit(() -> {
+                try (OutputStream fos = Files.newOutputStream(localFile,
+                        StandardOpenOption.TRUNCATE_EXISTING,
+                        StandardOpenOption.WRITE,
+                        StandardOpenOption.CREATE)) {
+                    return fileProcessorService.process(processStream, fos, runId);
+                }
+            });
+
+            pool.shutdown();
+            long errorRows = processorFuture.get();
+
+            sftpClientService.uploadOutputFileWithRetry(outputFileName, localFile);
+
+            return errorRows;
+        } finally {
+            try {
+                Files.deleteIfExists(localFile);
+            } catch (Exception e) {
+                log.warn("⚠️ Could not delete local staging file {}: {}", localFile.toAbsolutePath(), e.getMessage());
+            }
+        }
+    }
+
+    private Path resolveOutputStagingDirectory() throws java.io.IOException {
+        if (outputStagingDir != null && !outputStagingDir.isBlank()) {
+            Path p = Path.of(outputStagingDir.trim());
+            if (!p.isAbsolute()) {
+                p = Path.of(System.getProperty("user.dir")).resolve(p);
+            }
+            Files.createDirectories(p);
+            return p.toAbsolutePath().normalize();
+        }
+        return Path.of(System.getProperty("java.io.tmpdir")).toAbsolutePath().normalize();
+    }
+
+    private void deleteOrphanStagingFilesBestEffort() {
+        if (!stageOutputToDiskBeforeUpload) {
+            return;
+        }
+        try {
+            Path dir = resolveOutputStagingDirectory();
+            if (!Files.isDirectory(dir)) {
+                return;
+            }
+            try (Stream<Path> stream = Files.list(dir)) {
+                stream.filter(p -> {
+                    String n = p.getFileName().toString();
+                    return n.startsWith("preprocessor-") && n.endsWith(".staging");
+                }).forEach(p -> {
+                    try {
+                        Files.deleteIfExists(p);
+                        log.info("ℹ️ Shutdown hook: deleted orphan staging file {}", p);
+                    } catch (Exception e) {
+                        log.warn("⚠️ Shutdown hook: could not delete {}: {}", p, e.getMessage());
+                    }
+                });
+            }
+        } catch (Exception e) {
+            log.warn("⚠️ Shutdown hook: staging cleanup skipped: {}", e.getMessage());
+        }
     }
 
     /**
