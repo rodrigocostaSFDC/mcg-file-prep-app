@@ -34,6 +34,7 @@ import org.springframework.integration.sftp.session.DefaultSftpSessionFactory;
 import org.springframework.integration.sftp.session.SftpRemoteFileTemplate;
 
 import org.apache.sshd.client.SshClient;
+import org.apache.sshd.client.keyverifier.AcceptAllServerKeyVerifier;
 import org.apache.sshd.core.CoreModuleProperties;
 
 import java.time.Duration;
@@ -108,6 +109,10 @@ public class SftpClientConfig {
                 Duration.ofMillis(props.serverAliveInterval()));
         CoreModuleProperties.HEARTBEAT_REPLY_WAIT.set(client,
                 Duration.ofMillis(props.setTimeout()));
+        client.addPasswordIdentity(props.password());
+        if (props.allowUnknownKeys()) {
+            client.setServerKeyVerifier(AcceptAllServerKeyVerifier.INSTANCE);
+        }
         client.start();
         return client;
     }
@@ -119,8 +124,6 @@ public class SftpClientConfig {
         factory.setHost(props.host());
         factory.setPort(props.port());
         factory.setUser(props.username());
-        factory.setPassword(props.password());
-        factory.setAllowUnknownKeys(props.allowUnknownKeys());
         factory.setTimeout(props.setTimeout());
         return factory;
     }
