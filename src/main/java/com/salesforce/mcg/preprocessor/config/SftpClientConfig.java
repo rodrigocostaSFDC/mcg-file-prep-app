@@ -33,6 +33,10 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.integration.sftp.session.DefaultSftpSessionFactory;
 import org.springframework.integration.sftp.session.SftpRemoteFileTemplate;
 
+import org.apache.sshd.client.SshClient;
+import org.apache.sshd.core.CoreModuleProperties;
+
+import java.time.Duration;
 import java.util.Properties;
 
 import static com.salesforce.mcg.preprocessor.common.AppConstants.*;
@@ -96,10 +100,22 @@ public class SftpClientConfig {
         }
     }
 
-    @Bean
-    public DefaultSftpSessionFactory sftpSessionFactory(SftpPropertyContext context) throws JSchException {
+    @Bean(destroyMethod = "stop")
+    public SshClient sshClient(SftpPropertyContext context) {
         var props = context.getPropertiesForActiveCompany();
-        var factory = new DefaultSftpSessionFactory(true);
+        var client = SshClient.setUpDefaultClient();
+        CoreModuleProperties.HEARTBEAT_INTERVAL.set(client,
+                Duration.ofMillis(props.serverAliveInterval()));
+        CoreModuleProperties.HEARTBEAT_REPLY_WAIT.set(client,
+                Duration.ofMillis(props.setTimeout()));
+        client.start();
+        return client;
+    }
+
+    @Bean
+    public DefaultSftpSessionFactory sftpSessionFactory(SshClient sshClient, SftpPropertyContext context) {
+        var props = context.getPropertiesForActiveCompany();
+        var factory = new DefaultSftpSessionFactory(sshClient, true);
         factory.setHost(props.host());
         factory.setPort(props.port());
         factory.setUser(props.username());
@@ -133,6 +149,7 @@ public class SftpClientConfig {
         session.setServerAliveInterval(props.serverAliveInterval());
         session.setServerAliveCountMax(props.setServerAliveCountMax());
         session.setTimeout(props.setTimeout());
+        session.connect(15_000);
         return session;
     }
 
