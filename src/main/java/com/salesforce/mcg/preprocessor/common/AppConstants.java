@@ -22,6 +22,7 @@ public class AppConstants {
     public static final String SFTP_MODE = "sftp.mode";
     public static final String MODE_REMOTE = "remote";
     public static final String MODE_LOCAL = "local";
+    public static final String MODE_DOCKER = "docker";
 
     public static final String PREFERRED_AUTHENTICATIONS = "PreferredAuthentications";
     public static final String REMOTE_PREFERRED_AUTH = "publickey,password,keyboard-interactive";

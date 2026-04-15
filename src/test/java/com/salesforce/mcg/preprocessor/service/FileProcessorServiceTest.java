@@ -3,7 +3,6 @@ package com.salesforce.mcg.preprocessor.service;
 import com.opencsv.exceptions.CsvValidationException;
 import com.salesforce.mcg.preprocessor.data.ShortUrlRequest;
 import com.salesforce.mcg.preprocessor.data.ShortUrlResponse;
-import com.salesforce.mcg.preprocessor.util.PreprocessorBusinessClock;
 import com.salesforce.mcg.preprocessor.helper.FileProcessorHelper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -412,7 +411,6 @@ class FileProcessorServiceTest {
                 telcelCheckService,
                 shortCodeBalancer,
                 shortUrlService,
-                new PreprocessorBusinessClock("America/Mexico_City"),
                 chunkSize,
                 includeHeader,
                 parallelBatches,

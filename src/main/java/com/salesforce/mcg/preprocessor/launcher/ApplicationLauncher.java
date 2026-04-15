@@ -30,46 +30,21 @@ import org.springframework.boot.ApplicationRunner;
 import org.springframework.stereotype.Component;
 
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.io.PipedInputStream;
 import java.io.PipedOutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
 import static com.salesforce.mcg.preprocessor.common.AppConstants.*;
 
-/**
- * Entry point for the file-preprocessor one-off dyno.
- *
- * <p>Implements {@link ApplicationRunner} so that Spring Boot invokes
- * {@link #run} immediately after context startup. When the work is done
- * (or a fatal error occurs) the application shuts down via
- * {@link System#exit} — terminating the Heroku dyno automatically.
- *
- * <h2>Execution flow</h2>
- * <ol>
- *   <li>Discover matching input files in the configured SFTP {@code inputDir}.
- *   <li>Process up to {@code preprocessor.concurrency} files in parallel.
- *   <li>For each file: download → process → upload enriched output to {@code outputDir}
- *       (optionally staged on local disk first — see {@code preprocessor.output.stage-to-disk-before-upload}).
- *   <li>Log a summary and exit with code {@code 0} (success) or {@code 1} (any failure).
- * </ol>
- *
- * <h2>Command-line arguments</h2>
- * <ul>
- *   <li>{@code --company=<telmex|telnor>} — required tenant selector used by SFTP/property context.</li>
- *   <li>{@code --file=<name>} — required input file inside {@code inputDir}.</li>
- * </ul>
- *
- * <h2>Parallel processing on Heroku</h2>
- * Set {@code PREPROCESSOR_CONCURRENCY=2} (or higher) to process multiple files at once
- * within a single dyno.  All files share the same DB connection pool and short-URL
- * service, so keep this number modest (2–4).  If you need to process very large file
- * sets simultaneously, scale horizontally by running multiple one-off dynos, each
- * pointed at a different file via {@code --file=<name>}.
- */
 @Component
 @RequiredArgsConstructor
 @Slf4j
@@ -83,17 +58,22 @@ public class ApplicationLauncher implements ApplicationRunner {
     @Value("${app.auto-shutdown:true}")
     private boolean autoShutdown;
 
+    @Value("${preprocessor.output.stage-to-disk-before-upload:false}")
+    private boolean stageOutputToDiskBeforeUpload;
+
+    @Value("${preprocessor.output.staging-dir:}")
+    private String outputStagingDir;
+
     @Override
     public void run(ApplicationArguments args) {
 
         log.info("🚀 Application starting...");
 
-        // Best-effort unlock when the JVM shuts down (SIGTERM from e.g. heroku ps:restart, dyno cycle).
-        // heroku ps:kill / ps:stop often maps to an immediate stop: the platform may SIGKILL the dyno,
-        // in which case shutdown hooks never run — you will not see POST /api/preprocessor/next.
-        // For a graceful test, use: heroku ps:restart --dyno-name run.NNNN
         var threadName = "preprocessor-shutdown-hook";
-        Runtime.getRuntime().addShutdownHook(new Thread(gatewayCallback::notifyNext, threadName));
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            deleteOrphanStagingFilesBestEffort();
+            gatewayCallback.notifyNext();
+        }, threadName));
 
         var file = requireSingleOption(args, "file");
         var company = requireSingleOption(args, "company");
@@ -133,31 +113,14 @@ public class ApplicationLauncher implements ApplicationRunner {
         var outputFileName = buildOutputFileName(fileName);
         log.info("ℹ️ Processing file: {}, company: {} (runId={})", remotePath, company, runId);
 
-        /*
-         * Full streaming pipeline — no full-file buffers in heap at any stage:
-         *
-         *   SFTP download (.zip or .txt)
-         *       └─► If .zip: ZipInputStream → first .txt entry inside archive
-         *           If .txt: raw stream
-         *               └─► FileProcessorService  [background thread]
-         *                       writes enriched pipe-delimited rows (plain .txt) to processorOut
-         *                               └─► processorIn
-         *                                       └─► SFTP upload (.txt)  [main thread]
-         *
-         * Two modes (see {@link #stageOutputToDiskBeforeUpload}):
-         *   <ul>
-         *     <li><b>Pipe:</b> processor streams to SFTP temp while rows are produced (low disk; final basename not written until temp is done).</li>
-         *     <li><b>Disk staging (Heroku default):</b> processor finishes a local file, then streams it once to the
-         *         <b>final</b> SFTP name (no remote {@code temp*.txt}). Ephemeral disk must fit the output.</li>
-         *   </ul>
-         * Remote: with disk staging, one stream to the <b>final</b> SFTP filename (no {@code temp*.txt} on server).
-         * Pipe mode still uses {@code temp{ts}.txt} then rename/copy; {@code preprocessor.output.copy-instead-of-rename} applies there.
-         */
         try (InputStream downloadStream = sftpClientService.openDownloadStream(remotePath)) {
 
             var processStream = openProcessStream(fileName, downloadStream);
             var tempOutputName = "temp" + System.currentTimeMillis() + ".txt";
-            var errorRows = processAndUploadViaPipe(processStream, runId, tempOutputName, outputFileName);
+
+            long errorRows = stageOutputToDiskBeforeUpload
+                    ? processAndUploadViaLocalStaging(processStream, runId, outputFileName)
+                    : processAndUploadViaPipe(processStream, runId, tempOutputName, outputFileName);
 
             log.info("ℹ️ File {} complete — uploaded as {}, error rows: {}",
                     remotePath, outputFileName, errorRows);
@@ -178,7 +141,6 @@ public class ApplicationLauncher implements ApplicationRunner {
             return;
         }
 
-        // Output fully uploaded and download stream closed — safe to move input to processed dir
         try {
             sftpClientService.moveInputToProcessed(fileName, outputFileName);
         } catch (Exception ex) {
@@ -194,7 +156,7 @@ public class ApplicationLauncher implements ApplicationRunner {
                 return true;
             }
             String msg = current.getMessage();
-            if (msg != null && msg.contains("❌ No such file or directory")) {
+            if (msg != null && msg.contains("No such file or directory")) {
                 return true;
             }
             current = current.getCause();
@@ -232,18 +194,86 @@ public class ApplicationLauncher implements ApplicationRunner {
     }
 
     /**
-     * If {@code fileName} ends with {@code .zip}, wraps the raw SFTP download stream in a
-     * {@link ZipInputStream} and advances to the first {@code .txt} entry inside the archive.
-     * The {@link ZipInputStream} must NOT be closed by the caller — closing the underlying
-     * {@code downloadStream} (owned by the try-with-resources in {@link #process}) is sufficient.
-     *
-     * <p>For plain {@code .txt} files the download stream is returned unchanged.
-     *
-     * @param fileName     the SFTP filename (used to detect .zip extension)
-     * @param downloadStream the raw byte stream from SFTP
-     * @return stream positioned at the start of the pipe-delimited content
-     * @throws java.io.IOException if the zip contains no .txt entry
+     * Writes the full enriched file to local disk, then uploads from disk in one shot.
+     * The upload streams from disk — the full file is not loaded into heap.
      */
+    private long processAndUploadViaLocalStaging(InputStream processStream, String runId,
+            String outputFileName) throws Exception {
+
+        Path stagingDir = resolveOutputStagingDirectory();
+        Path localFile = Files.createTempFile(stagingDir, "preprocessor-" + runId + "-", ".staging");
+        log.info("ℹ️ Staging preprocessor output on disk: {}", localFile.toAbsolutePath());
+
+        try {
+            var pool = Executors.newSingleThreadExecutor(
+                    r -> new Thread(r, "processor-" + runId));
+
+            var processorFuture = pool.submit(() -> {
+                try (OutputStream fos = Files.newOutputStream(localFile,
+                        StandardOpenOption.TRUNCATE_EXISTING,
+                        StandardOpenOption.WRITE,
+                        StandardOpenOption.CREATE)) {
+                    return fileProcessorService.process(processStream, fos, runId);
+                }
+            });
+
+            pool.shutdown();
+            long errorRows = processorFuture.get();
+
+            try (InputStream in = Files.newInputStream(localFile)) {
+                sftpClientService.uploadOutputFile(outputFileName, in);
+            }
+
+            return errorRows;
+        } finally {
+            try {
+                Files.deleteIfExists(localFile);
+            } catch (Exception e) {
+                log.warn("⚠️ Could not delete local staging file {}: {}", localFile.toAbsolutePath(), e.getMessage());
+            }
+        }
+    }
+
+    private Path resolveOutputStagingDirectory() throws java.io.IOException {
+        if (outputStagingDir != null && !outputStagingDir.isBlank()) {
+            Path p = Path.of(outputStagingDir.trim());
+            if (!p.isAbsolute()) {
+                String cwd = System.getProperty("user.dir");
+                p = Path.of(cwd).resolve(p);
+            }
+            Files.createDirectories(p);
+            return p.toAbsolutePath().normalize();
+        }
+        return Path.of(System.getProperty("java.io.tmpdir")).toAbsolutePath().normalize();
+    }
+
+    private void deleteOrphanStagingFilesBestEffort() {
+        if (!stageOutputToDiskBeforeUpload) {
+            return;
+        }
+        try {
+            Path dir = resolveOutputStagingDirectory();
+            if (!Files.isDirectory(dir)) {
+                return;
+            }
+            try (Stream<Path> stream = Files.list(dir)) {
+                stream.filter(p -> {
+                    String n = p.getFileName().toString();
+                    return n.startsWith("preprocessor-") && n.endsWith(".staging");
+                }).forEach(p -> {
+                    try {
+                        Files.deleteIfExists(p);
+                        log.info("ℹ️ Shutdown hook: deleted orphan staging file {}", p);
+                    } catch (Exception e) {
+                        log.warn("⚠️ Shutdown hook: could not delete {}: {}", p, e.getMessage());
+                    }
+                });
+            }
+        } catch (Exception e) {
+            log.warn("⚠️ Shutdown hook: staging cleanup skipped: {}", e.getMessage());
+        }
+    }
+
     private InputStream openProcessStream(String fileName, InputStream downloadStream)
             throws java.io.IOException {
 
@@ -258,18 +288,13 @@ public class ApplicationLauncher implements ApplicationRunner {
             if (!entry.isDirectory() && entry.getName().toLowerCase().endsWith(FILE_EXTENSION_TXT)) {
                 log.info("ℹ️ Found TXT entry inside ZIP: {} ({} bytes compressed)",
                         entry.getName(), entry.getCompressedSize());
-                return zip; // caller reads decompressed bytes directly from here
+                return zip;
             }
             zip.closeEntry();
         }
         throw new java.io.IOException("❌ No .txt entry found inside ZIP file: " + fileName);
     }
 
-    /**
-     * Output is always a {@code .txt} on SFTP (pipe-delimited enriched file).
-     * Strips {@code .zip} or {@code .txt} from the input basename before adding {@code .txt}.
-     * Input filenames are assumed unique; no timestamp suffix is appended.
-     */
     private String buildOutputFileName(String originalName) {
         String lower = originalName.toLowerCase();
         String base;

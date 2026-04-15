@@ -96,7 +96,7 @@ class SftpClientServiceTest {
     @Test
     void moveInputToProcessed_createsProcessedSubdirUnderInputWhenMissing() throws Exception {
         when(sftpPropertyContext.getPropertiesForActiveCompany()).thenReturn(
-                new SftpServerProperties("telmex", "localhost", 22, "u", "p", "", "", "", true, "/in", "/out", "done", "*", 20000, 3, 30000));
+                new SftpServerProperties("telmex", "localhost", 22, "u", "p", "", "", "", true, "/in", "/out", "/in/done", "*", 20000, 3, 30000));
         stubSftpDefaults();
         var attrs = mock(com.jcraft.jsch.SftpATTRS.class);
         doThrow(new SftpException(ChannelSftp.SSH_FX_NO_SUCH_FILE, "missing")).when(channel).stat("/in/done");
@@ -111,7 +111,7 @@ class SftpClientServiceTest {
     @Test
     void moveInputToProcessed_whenInboxAlreadyGoneButDoneExists_skipsRename() throws Exception {
         when(sftpPropertyContext.getPropertiesForActiveCompany()).thenReturn(
-                new SftpServerProperties("telmex", "localhost", 22, "u", "p", "", "", "", true, "/in", "/out", "done", "*", 20000, 3, 30000));
+                new SftpServerProperties("telmex", "localhost", 22, "u", "p", "", "", "", true, "/in", "/out", "/in/done", "*", 20000, 3, 30000));
         stubSftpDefaults();
         var attrs = mock(com.jcraft.jsch.SftpATTRS.class);
         when(channel.stat("/in/done")).thenReturn(attrs);
@@ -126,7 +126,7 @@ class SftpClientServiceTest {
     @Test
     void moveInputToProcessed_whenRenameNoSuchFileButDoneExists_treatsAsSuccess() throws Exception {
         when(sftpPropertyContext.getPropertiesForActiveCompany()).thenReturn(
-                new SftpServerProperties("telmex", "localhost", 22, "u", "p", "", "", "", true, "/in", "/out", "done", "*", 20000, 3, 30000));
+                new SftpServerProperties("telmex", "localhost", 22, "u", "p", "", "", "", true, "/in", "/out", "/in/done", "*", 20000, 3, 30000));
         stubSftpDefaults();
         var attrs = mock(com.jcraft.jsch.SftpATTRS.class);
         when(channel.stat("/in/done")).thenReturn(attrs);

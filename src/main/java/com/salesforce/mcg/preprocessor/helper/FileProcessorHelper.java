@@ -110,7 +110,10 @@ public class FileProcessorHelper {
     // -------------------------------------------------------------------------
 
     public static CSVReader getReaderForInputStream(@NonNull InputStream inputStream){
-        var parser = new RFC4180ParserBuilder().withSeparator(DELIMITER).build();
+        var parser = new CSVParserBuilder()
+                .withSeparator(DELIMITER)
+                .withIgnoreQuotations(true)
+                .build();
         return new CSVReaderBuilder(
                 new InputStreamReader(inputStream, StandardCharsets.UTF_8))
                 .withCSVParser(parser).build();

@@ -150,6 +150,21 @@ public class SftpClientService {
     }
 
     /**
+     * Streams content directly to {@code outputDir}/{@code fileName} — no temp file, no rename.
+     * Used by the disk-staging upload path where the full payload is already materialized locally.
+     */
+    public void uploadOutputFile(String fileName, InputStream content) {
+        var props = getProps();
+        var remotePath = "%s/%s".formatted(props.outputDir(), fileName);
+        log.info("📡 Streaming upload to final name: {}", remotePath);
+        remoteFileTemplate.execute(session -> {
+            session.write(content, remotePath);
+            return null;
+        });
+        log.info("✅ Upload complete: {}", remotePath);
+    }
+
+    /**
      * Moves the processed input from {@link SftpServerProperties#inputDir()} (inbox) to
      * {@link SftpServerProperties#processedDir()} (DONE), renaming the leaf to match
      * the READY output name per {@link ProcessedInputNaming} so inbox is empty and DONE/READY basenames align.

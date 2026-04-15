@@ -26,13 +26,14 @@ import org.apache.logging.log4j.util.Strings;
 import org.springframework.beans.factory.BeanCreationException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.integration.sftp.session.DefaultSftpSessionFactory;
 import org.springframework.integration.sftp.session.SftpRemoteFileTemplate;
 
+import java.util.Optional;
 import java.util.Properties;
 
 import static com.salesforce.mcg.preprocessor.common.AppConstants.*;
@@ -54,26 +55,17 @@ public class SftpClientConfig {
     @Value("${sftp.mode}")
     private String sftpMode;
 
-    @ConditionalOnProperty(name = SFTP_MODE, havingValue = MODE_LOCAL)
-    @Bean JSch jSchLocal(
-            SftpPropertyContext context,
-            LocalEmbeddedSftpServer sftpServer) throws JSchException {
-        var props = context.getPropertiesForActiveCompany();
-        var jsch = new JSch();
-        var session = jsch.getSession(props.username(), props.host(), props.port());
-        session.setPassword(props.password());
-        var config = new Properties();
-        config.put(STRICT_HOST_KEY_CHECKING, STRICT_NO);
-        session.setConfig(config);
-        session.connect();
-        return jsch;
-    }
-
     @Bean
-    @ConditionalOnProperty(name = SFTP_MODE, havingValue = MODE_REMOTE, matchIfMissing = true)
-    public JSch jschRemote(SftpPropertyContext context) throws JSchException {
-        var props = context.getPropertiesForActiveCompany();
+    public JSch jsch(SftpPropertyContext context,
+                     Optional<LocalEmbeddedSftpServer> embeddedSftp) throws JSchException {
         var jsch = new JSch();
+
+        if (MODE_LOCAL.equals(sftpMode) || MODE_DOCKER.equals(sftpMode)) {
+            log.info("ℹ️ JSch configured for {} mode (password-only)", sftpMode);
+            return jsch;
+        }
+
+        var props = context.getPropertiesForActiveCompany();
         if (Strings.isNotBlank(props.knownHosts())) {
             jsch.setKnownHosts(props.knownHosts());
         }
@@ -117,7 +109,8 @@ public class SftpClientConfig {
     // -------------------------------------------------------------------------
 
     private Session buildAndConnectSession(JSch jsch, SftpPropertyContext context) throws JSchException {
-        var preferredAuthentications = MODE_LOCAL.equals(sftpMode) ? LOCAL_PREFERRED_AUTH: REMOTE_PREFERRED_AUTH;
+        var preferredAuthentications = (MODE_LOCAL.equals(sftpMode) || MODE_DOCKER.equals(sftpMode))
+                ? LOCAL_PREFERRED_AUTH : REMOTE_PREFERRED_AUTH;
         var props = context.getPropertiesForActiveCompany();
         var session = jsch.getSession(props.username(), props.host(), props.port());
         session.setPassword(props.password());
