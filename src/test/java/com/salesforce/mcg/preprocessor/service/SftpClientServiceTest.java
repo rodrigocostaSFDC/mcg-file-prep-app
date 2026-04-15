@@ -58,23 +58,21 @@ class SftpClientServiceTest {
     }
 
     @Test
-    void openDownloadStream_connectsIfNeededAndClosesChannel() throws Exception {
+    void openDownloadStream_streamsAndClosesChannel() throws Exception {
         stubSftpDefaults();
-        when(session.isConnected()).thenReturn(false);
         when(channel.get("/in/f.txt")).thenReturn(new ByteArrayInputStream("x".getBytes()));
 
         InputStream in = service.openDownloadStream("/in/f.txt");
         assertThat(in.read()).isEqualTo('x');
         in.close();
 
-        verify(session).connect();
+        verify(session, never()).connect();
         verify(channel).disconnect();
     }
 
     @Test
     void openDownloadStream_propagatesSftpException() throws Exception {
         stubSftpDefaults();
-        when(session.isConnected()).thenReturn(true);
         when(channel.get("/in/missing.txt"))
                 .thenThrow(new SftpException(ChannelSftp.SSH_FX_NO_SUCH_FILE, "missing"));
 

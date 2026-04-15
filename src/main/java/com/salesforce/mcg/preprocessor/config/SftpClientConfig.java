@@ -126,6 +126,8 @@ public class SftpClientConfig {
         session.setServerAliveInterval(props.serverAliveInterval());
         session.setServerAliveCountMax(props.setServerAliveCountMax());
         session.setTimeout(props.setTimeout());
+        session.connect();
+        log.info("✅ SFTP session connected to {}:{}", props.host(), props.port());
         return session;
     }
 

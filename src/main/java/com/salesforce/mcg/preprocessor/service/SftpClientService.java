@@ -85,9 +85,6 @@ public class SftpClientService {
     public InputStream openDownloadStream(String remotePath) throws JSchException, SftpException{
 
         try {
-            if (!sftpSession.isConnected()) {
-                sftpSession.connect();
-            }
             var channel = getSftpChannel();
             log.info("📡 Opening download stream: {}", remotePath);
             var raw = channel.get(remotePath);
